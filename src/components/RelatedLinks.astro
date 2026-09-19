@@ -1,0 +1,24 @@
+---
+interface Link {
+  slug: string;
+  anchor: string;
+}
+interface Props {
+  links: Link[];
+  articlesBase: string;
+}
+const { links, articlesBase } = Astro.props;
+---
+
+{links.length > 0 && (
+  <section class="mt-12" aria-labelledby="related-heading">
+    <h2 id="related-heading" class="font-serif text-3xl mb-4">Related</h2>
+    <ul class="list-disc ml-6">
+      {links.map((link) => (
+        <li>
+          <a class="text-accent underline" href={`/${articlesBase}/${link.slug}/`} target="_blank" rel="noopener noreferrer">{link.anchor}</a>
+        </li>
+      ))}
+    </ul>
+  </section>
+)}

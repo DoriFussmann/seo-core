@@ -1,0 +1,35 @@
+{
+  "name": "seo-core",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./audit": "./src/audit.ts",
+    "./schemas": "./src/schemas.ts",
+    "./layouts/ArticleLayout.astro": "./src/layouts/ArticleLayout.astro",
+    "./components/ArticleListing.astro": "./src/components/ArticleListing.astro",
+    "./components/AuthorBio.astro": "./src/components/AuthorBio.astro",
+    "./components/BackToTop.astro": "./src/components/BackToTop.astro",
+    "./components/Breadcrumbs.astro": "./src/components/Breadcrumbs.astro",
+    "./components/FaqBlock.astro": "./src/components/FaqBlock.astro",
+    "./components/RelatedLinks.astro": "./src/components/RelatedLinks.astro",
+    "./components/Sources.astro": "./src/components/Sources.astro",
+    "./components/TableOfContents.astro": "./src/components/TableOfContents.astro"
+  },
+  "peerDependencies": {
+    "@astrojs/rss": "^4.0.0",
+    "astro": "^5.0.0"
+  },
+  "dependencies": {
+    "@astrojs/rss": "^4.0.12",
+    "astro": "^5.12.0",
+    "cheerio": "^1.1.0",
+    "markdown-it": "^14.1.0",
+    "unist-util-visit": "^5.0.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/markdown-it": "^14.1.2",
+    "typescript": "^5.8.3"
+  }
+}

@@ -1,0 +1,24 @@
+---
+interface Source {
+  label: string;
+  url: string;
+  addedAt: string;
+}
+interface Props {
+  sources: Source[];
+}
+const { sources } = Astro.props;
+---
+
+{sources.length > 0 && (
+  <section class="mt-12" aria-labelledby="sources-heading">
+    <h2 id="sources-heading" class="font-serif text-3xl mb-4">Sources</h2>
+    <ul class="list-disc ml-6">
+      {sources.map((source) => (
+        <li>
+          <a class="text-accent underline" href={source.url} rel="noopener" target="_blank">{source.label}</a>
+        </li>
+      ))}
+    </ul>
+  </section>
+)}

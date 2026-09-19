@@ -1,0 +1,23 @@
+---
+interface Props {
+  name: string;
+  role: string;
+  bio: string;
+  slug: string;
+  photoSrc: string;
+  photoAlt: string;
+}
+const { name, role, bio, slug, photoSrc, photoAlt } = Astro.props;
+---
+
+<section class="mt-12 border-t border-border pt-8" aria-labelledby="author-heading">
+  <h2 id="author-heading" class="font-serif text-3xl mb-4">About the author</h2>
+  <div class="flex gap-4 items-start">
+    <img src={photoSrc} alt={photoAlt} width="96" height="96" loading="lazy" class="w-24 h-24 object-cover" />
+    <div class="flex-1 min-w-0">
+      <p class="font-medium"><a class="text-accent underline" href={`/team/${slug}/`}>{name}</a></p>
+      <p class="text-sm text-muted mb-2">{role}</p>
+      <p class="text-base">{bio}</p>
+    </div>
+  </div>
+</section>

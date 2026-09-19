@@ -1,0 +1,20 @@
+<button
+  type="button"
+  id="back-to-top"
+  class="tap-target fixed bottom-6 right-6 hidden bg-accent text-bg px-4 py-3 text-sm"
+>
+  Back to top
+</button>
+<script is:inline>
+  (function () {
+    var btn = document.getElementById("back-to-top");
+    if (!btn) return;
+    window.addEventListener("scroll", function () {
+      if (window.scrollY > 600) btn.classList.remove("hidden");
+      else btn.classList.add("hidden");
+    });
+    btn.addEventListener("click", function () {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  })();
+</script>
