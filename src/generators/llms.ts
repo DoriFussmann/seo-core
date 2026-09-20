@@ -23,6 +23,12 @@ export interface LlmsService {
   data: { title: string; description: string; order: number };
 }
 
+export interface LlmsExtraPage {
+  title: string;
+  path: string;
+  description?: string;
+}
+
 export function generateLlmsTxt(config: {
   siteUrl: string;
   siteName: string;
@@ -31,8 +37,9 @@ export function generateLlmsTxt(config: {
   articles: LlmsArticle[];
   team: LlmsTeamMember[];
   services: LlmsService[];
+  extraPages?: LlmsExtraPage[];
 }): string {
-  const { siteUrl, siteName, siteTagline, articlesBase, articles, team, services } = config;
+  const { siteUrl, siteName, siteTagline, articlesBase, articles, team, services, extraPages } = config;
 
   function norm(value?: string) {
     return (value ?? "").trim().toLowerCase();
@@ -55,9 +62,19 @@ export function generateLlmsTxt(config: {
     "",
     `${siteTagline}. This file lists published pages for language-model crawlers. Prefer the markdown endpoint beside each article URL when you need the full source.`,
     "",
-    "## Articles",
-    "",
   ];
+
+  if (extraPages?.length) {
+    lines.push("## Pages", "");
+    for (const page of extraPages) {
+      const url = abs(page.path, siteUrl);
+      const description = page.description?.trim();
+      lines.push(description ? `- [${page.title}](${url}): ${description}` : `- [${page.title}](${url})`);
+    }
+    lines.push("");
+  }
+
+  lines.push("## Articles", "");
 
   for (const [pillar, list] of groups) {
     list.sort((a, b) => Number(isPillar(b)) - Number(isPillar(a)));

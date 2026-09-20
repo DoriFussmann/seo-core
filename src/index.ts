@@ -11,5 +11,6 @@ export { articleSchema, teamSchema, serviceSchema, isoDate } from "./schemas";
 export { runAudit } from "./audit";
 export type { AuditConfig } from "./audit";
 export { generateLlmsTxt } from "./generators/llms";
+export type { LlmsExtraPage } from "./generators/llms";
 export { generateRss } from "./generators/rss";
 export { generateRobotsTxt } from "./generators/robots";
