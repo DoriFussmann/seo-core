@@ -8,10 +8,30 @@ export interface AuditConfig {
   articlesBase: string;
   distDir: string;
   articlesDir?: string;
+  /** When true (default), articles must contain "Key Takeaways". */
+  requireKeyTakeaways?: boolean;
+}
+
+function collectJsonLdTypes(node: unknown, types: Set<string>): void {
+  if (Array.isArray(node)) {
+    for (const item of node) collectJsonLdTypes(item, types);
+    return;
+  }
+  if (!node || typeof node !== "object") return;
+  const obj = node as Record<string, unknown>;
+  const t = obj["@type"];
+  if (typeof t === "string") types.add(t);
+  else if (Array.isArray(t)) {
+    for (const x of t) if (typeof x === "string") types.add(x);
+  }
+  if (Array.isArray(obj["@graph"])) {
+    for (const item of obj["@graph"]) collectJsonLdTypes(item, types);
+  }
 }
 
 export function runAudit(config: AuditConfig): string[] {
   const { siteUrl, siteName, articlesBase, distDir } = config;
+  const requireKeyTakeaways = config.requireKeyTakeaways ?? true;
   const articlesDir = config.articlesDir ?? join(distDir, "..", "src", "content", "articles");
   const errors: string[] = [];
 
@@ -108,6 +128,8 @@ export function runAudit(config: AuditConfig): string[] {
       const ogImage = $('meta[property="og:image"]').attr("content");
       if (ogImage && !/^https?:\/\//.test(ogImage)) fail(`${rel}: og:image is not absolute`);
 
+      const jsonLdTypes = new Set<string>();
+      let jsonLdBlocks = 0;
       $("script[type='application/ld+json']").each((_, el) => {
         const raw = $(el).text();
         let parsed: unknown;
@@ -117,23 +139,20 @@ export function runAudit(config: AuditConfig): string[] {
           fail(`${rel}: JSON-LD did not parse`);
           return;
         }
-        const obj = parsed as Record<string, unknown>;
-        const graph = obj["@graph"];
-        if (!Array.isArray(graph)) {
-          fail(`${rel}: JSON-LD missing @graph`);
-          return;
-        }
-        const types = graph.map((n) => (n as { "@type"?: string })["@type"]);
-        if (!types.includes("Organization")) fail(`${rel}: JSON-LD missing Organization`);
-        if (!types.includes("WebSite")) fail(`${rel}: JSON-LD missing WebSite`);
+        jsonLdBlocks += 1;
+        collectJsonLdTypes(parsed, jsonLdTypes);
+      });
+      if (jsonLdBlocks > 0) {
+        if (!jsonLdTypes.has("Organization")) fail(`${rel}: JSON-LD missing Organization`);
+        if (!jsonLdTypes.has("WebSite")) fail(`${rel}: JSON-LD missing WebSite`);
         if (isArticle) {
-          if (!types.includes("Article") && !types.includes("BlogPosting") && !types.includes("NewsArticle")) {
+          if (!jsonLdTypes.has("Article") && !jsonLdTypes.has("BlogPosting") && !jsonLdTypes.has("NewsArticle")) {
             fail(`${rel}: article JSON-LD missing article type`);
           }
-          if (!types.includes("BreadcrumbList")) fail(`${rel}: article JSON-LD missing BreadcrumbList`);
-          if (!types.includes("Person")) fail(`${rel}: article JSON-LD missing Person`);
+          if (!jsonLdTypes.has("BreadcrumbList")) fail(`${rel}: article JSON-LD missing BreadcrumbList`);
+          if (!jsonLdTypes.has("Person")) fail(`${rel}: article JSON-LD missing Person`);
         }
-      });
+      }
 
       $("a[href]").each((_, el) => {
         const href = $(el).attr("href") || "";
@@ -157,7 +176,7 @@ export function runAudit(config: AuditConfig): string[] {
       if (isArticle) {
         if (!html.includes("WHERE-THINGS-STAND:START")) fail(`${rel}: missing WTS START marker`);
         if (!html.includes("WHERE-THINGS-STAND:END")) fail(`${rel}: missing WTS END marker`);
-        if (!html.includes("Key Takeaways")) fail(`${rel}: missing Key Takeaways`);
+        if (requireKeyTakeaways && !html.includes("Key Takeaways")) fail(`${rel}: missing Key Takeaways`);
       }
     }
 
