@@ -9,7 +9,7 @@ export { rehypeKeyTakeaways } from "./lib/key-takeaways";
 export { remarkPreserveWts, rehypeEmitWtsComments, WTS_START, WTS_END } from "./lib/wts-comments";
 export { articleSchema, teamSchema, serviceSchema, isoDate } from "./schemas";
 export { runAudit } from "./audit";
-export type { AuditConfig } from "./audit";
+export type { AuditConfig, PillarHubMatcher } from "./audit";
 export { generateLlmsTxt } from "./generators/llms";
 export type { LlmsExtraPage } from "./generators/llms";
 export { generateRss } from "./generators/rss";

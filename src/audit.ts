@@ -2,6 +2,9 @@ import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import * as cheerio from "cheerio";
 
+/** URL paths (e.g. "/articles/friend-books/") or a predicate over the page pathname. */
+export type PillarHubMatcher = string[] | ((pathname: string) => boolean);
+
 export interface AuditConfig {
   siteUrl: string;
   siteName: string;
@@ -10,6 +13,39 @@ export interface AuditConfig {
   articlesDir?: string;
   /** When true (default), articles must contain "Key Takeaways". */
   requireKeyTakeaways?: boolean;
+  /** When true (default), articles must contain WHERE-THINGS-STAND markers. */
+  requireWts?: boolean;
+  /**
+   * Pillar-hub listing pages under the articles base that are not articles.
+   * When omitted, every articles-base detail page is audited as an article.
+   */
+  pillarHubs?: PillarHubMatcher;
+}
+
+function pagePathname(rel: string): string {
+  if (rel === "index.html" || rel === "") return "/";
+  const withoutFile = rel.replace(/index\.html$/, "");
+  const withSlash = withoutFile.endsWith("/") ? withoutFile : `${withoutFile}/`;
+  return `/${withSlash.replace(/^\/+/, "")}`;
+}
+
+function normalizeAuditPath(path: string): string {
+  return path
+    .trim()
+    .replace(/\\/g, "/")
+    .split("#")[0]
+    .split("?")[0]
+    .replace(/\/index\.html$/, "")
+    .replace(/index\.html$/, "")
+    .replace(/^\/+|\/+$/g, "");
+}
+
+function matchesPillarHub(rel: string, pillarHubs: PillarHubMatcher | undefined): boolean {
+  if (!pillarHubs) return false;
+  const pathname = pagePathname(rel);
+  if (typeof pillarHubs === "function") return pillarHubs(pathname);
+  const target = normalizeAuditPath(pathname);
+  return pillarHubs.some((hub) => normalizeAuditPath(hub) === target);
 }
 
 function collectJsonLdTypes(node: unknown, types: Set<string>): void {
@@ -32,6 +68,7 @@ function collectJsonLdTypes(node: unknown, types: Set<string>): void {
 export function runAudit(config: AuditConfig): string[] {
   const { siteUrl, siteName, articlesBase, distDir } = config;
   const requireKeyTakeaways = config.requireKeyTakeaways ?? true;
+  const requireWts = config.requireWts ?? true;
   const articlesDir = config.articlesDir ?? join(distDir, "..", "src", "content", "articles");
   const errors: string[] = [];
 
@@ -84,7 +121,9 @@ export function runAudit(config: AuditConfig): string[] {
       const html = readFileSync(file, "utf8");
       const $ = cheerio.load(html);
       const is404 = rel.includes("404");
+      const isHub = matchesPillarHub(rel, config.pillarHubs);
       const isArticle =
+        !isHub &&
         rel.startsWith(`${articlesBase}/`) &&
         rel.endsWith("index.html") &&
         rel !== `${articlesBase}/index.html` &&
@@ -142,7 +181,7 @@ export function runAudit(config: AuditConfig): string[] {
         jsonLdBlocks += 1;
         collectJsonLdTypes(parsed, jsonLdTypes);
       });
-      if (jsonLdBlocks > 0) {
+      if (jsonLdBlocks > 0 || isHub) {
         if (!jsonLdTypes.has("Organization")) fail(`${rel}: JSON-LD missing Organization`);
         if (!jsonLdTypes.has("WebSite")) fail(`${rel}: JSON-LD missing WebSite`);
         if (isArticle) {
@@ -174,8 +213,8 @@ export function runAudit(config: AuditConfig): string[] {
       });
 
       if (isArticle) {
-        if (!html.includes("WHERE-THINGS-STAND:START")) fail(`${rel}: missing WTS START marker`);
-        if (!html.includes("WHERE-THINGS-STAND:END")) fail(`${rel}: missing WTS END marker`);
+        if (requireWts && !html.includes("WHERE-THINGS-STAND:START")) fail(`${rel}: missing WTS START marker`);
+        if (requireWts && !html.includes("WHERE-THINGS-STAND:END")) fail(`${rel}: missing WTS END marker`);
         if (requireKeyTakeaways && !html.includes("Key Takeaways")) fail(`${rel}: missing Key Takeaways`);
       }
     }
