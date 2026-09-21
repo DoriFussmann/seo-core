@@ -139,7 +139,7 @@ const jsonLd = { "@context": "https://schema.org", "@graph": graph };
   .article-column {
     box-sizing: border-box;
     width: 100%;
-    max-width: 48rem;
+    max-width: var(--article-max-width, 90rem);
     margin-inline: auto;
     padding-inline: 1.25rem;
     padding-block: 2.5rem;
