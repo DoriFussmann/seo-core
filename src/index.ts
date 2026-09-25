@@ -5,6 +5,7 @@ export type { Heading } from "./lib/headings";
 export { abs } from "./lib/url";
 export { orgNode, websiteNode, breadcrumbNode, personNode, faqPageNode } from "./lib/jsonld";
 export type { SiteIdentity } from "./lib/jsonld";
+export { guardBodyH1 } from "./lib/body-h1";
 export { rehypeKeyTakeaways } from "./lib/key-takeaways";
 export { remarkPreserveWts, rehypeEmitWtsComments, WTS_START, WTS_END } from "./lib/wts-comments";
 export { articleSchema, teamSchema, serviceSchema, isoDate } from "./schemas";

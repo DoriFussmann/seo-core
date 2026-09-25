@@ -1,0 +1,13 @@
+---
+import { guardBodyH1 } from "../lib/body-h1";
+
+interface Props {
+  title?: string;
+}
+
+const { title } = Astro.props;
+const html = await Astro.slots.render("default");
+const safe = guardBodyH1(html, title);
+---
+
+<Fragment set:html={safe} />

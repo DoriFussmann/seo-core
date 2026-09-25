@@ -8,6 +8,7 @@ import FaqBlock from "../components/FaqBlock.astro";
 import RelatedLinks from "../components/RelatedLinks.astro";
 import Sources from "../components/Sources.astro";
 import AuthorBio from "../components/AuthorBio.astro";
+import ArticleBody from "../components/ArticleBody.astro";
 import { formatDate } from "../lib/formatDate";
 import { abs } from "../lib/url";
 import { breadcrumbNode, faqPageNode, orgNode, personNode, websiteNode } from "../lib/jsonld";
@@ -119,7 +120,7 @@ const jsonLd = { "@context": "https://schema.org", "@graph": graph };
     </header>
     <TableOfContents headings={headings} />
     <div class="prose-article">
-      <Content />
+      <ArticleBody title={data.title}><Content /></ArticleBody>
     </div>
     <FaqBlock faqs={data.faqs} />
     <RelatedLinks links={data.internalLinks} articlesBase={articlesBase} />

@@ -1,12 +1,13 @@
 {
   "name": "seo-core",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
     "./audit": "./src/audit.ts",
     "./schemas": "./src/schemas.ts",
     "./layouts/ArticleLayout.astro": "./src/layouts/ArticleLayout.astro",
+    "./components/ArticleBody.astro": "./src/components/ArticleBody.astro",
     "./components/ArticleListing.astro": "./src/components/ArticleListing.astro",
     "./components/AuthorBio.astro": "./src/components/AuthorBio.astro",
     "./components/BackToTop.astro": "./src/components/BackToTop.astro",
