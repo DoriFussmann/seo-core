@@ -11,11 +11,11 @@ const { faqs } = Astro.props;
 
 {faqs.length > 0 && (
   <section class="mt-12" aria-labelledby="faq-heading">
-    <h2 id="faq-heading" class="font-serif text-3xl mb-4">Frequently asked questions</h2>
+    <h2 id="faq-heading" class="h2">Frequently asked questions</h2>
     {faqs.map((faq) => (
-      <details class="border-b border-border py-3">
-        <summary class="cursor-pointer py-2 tap-target font-medium">{faq.question}</summary>
-        <p class="mt-2 text-muted">{faq.answer}</p>
+      <details class="faq-item">
+        <summary>{faq.question}</summary>
+        <p class="muted">{faq.answer}</p>
       </details>
     ))}
   </section>

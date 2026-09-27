@@ -9,15 +9,15 @@ interface Props {
 const { crumbs } = Astro.props;
 ---
 
-<nav aria-label="Breadcrumb" class="mb-6">
-  <ol class="flex flex-wrap gap-2 text-sm text-muted">
+<nav aria-label="Breadcrumb" class="breadcrumbs">
+  <ol class="flex flex-wrap gap-2">
     {crumbs.map((crumb, i) => (
       <li class="inline-flex items-center gap-2">
         {i > 0 && <span aria-hidden="true">/</span>}
         {i === crumbs.length - 1 ? (
           <span aria-current="page">{crumb.name}</span>
         ) : (
-          <a class="underline hover:text-accent py-2" href={new URL(crumb.href).pathname}>{crumb.name}</a>
+          <a class="py-2" href={new URL(crumb.href).pathname}>{crumb.name}</a>
         )}
       </li>
     ))}

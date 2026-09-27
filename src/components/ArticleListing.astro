@@ -15,13 +15,13 @@ const { articles, pillars, page, pages, articlesBase } = Astro.props;
 ---
 
 <form id="article-filters" class="mb-8 flex gap-4 w-full">
-  <label class="flex flex-col text-sm w-1/2">
+  <label class="flex flex-col w-1/2">
     Search titles
-    <input type="search" name="q" id="filter-q" class="border border-border px-3 py-2 min-h-[44px] w-full" />
+    <input type="search" name="q" id="filter-q" class="field" />
   </label>
-  <label class="flex flex-col text-sm w-1/2">
+  <label class="flex flex-col w-1/2">
     Core pillar keyword
-    <select name="pillar" id="filter-pillar" class="border border-border px-3 py-2 min-h-[44px] w-full appearance-none bg-surface pr-8 cursor-pointer relative">
+    <select name="pillar" id="filter-pillar" class="field select-field">
       <option value="">All pillars</option>
       {pillars.map((p) => <option value={p}>{p}</option>)}
     </select>
@@ -30,15 +30,15 @@ const { articles, pillars, page, pages, articlesBase } = Astro.props;
 <ul id="article-grid" class="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
   {articles.map((article) => (
     <li
-      class="article-card group relative border border-border bg-surface transition-shadow hover:shadow-lg cursor-pointer"
+      class="card article-card"
       data-title={article.data.title}
       data-pillar={article.data.pillarKeyword ?? ""}
       onclick={`window.location='/${articlesBase}/${article.id}/'`}
     >
       {article.data.pillarKeyword && (
-        <p class="px-4 pt-4 text-xs font-medium text-accent uppercase tracking-wide">{article.data.pillarKeyword}</p>
+        <p class="eyebrow px-4 pt-4">{article.data.pillarKeyword}</p>
       )}
-      <div class="hero-frame mx-4 mt-2 mb-3">
+      <div class="media-frame mx-4 mt-2 mb-3">
         <Image
           src={article.data.image}
           width={600}
@@ -49,10 +49,10 @@ const { articles, pillars, page, pages, articlesBase } = Astro.props;
           sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
         />
       </div>
-      <div class="px-4 pb-4">
-        <h2 class="font-serif text-xl mb-1 group-hover:text-accent transition-colors">{article.data.title}</h2>
-        <p class="text-sm text-muted mb-3">{formatDate(article.data.updatedDate || article.data.date)}</p>
-        <span class="inline-block border border-accent text-accent text-sm px-4 py-1 group-hover:bg-accent group-hover:text-surface transition-colors">
+      <div class="px-4 pb-4 flex flex-col gap-2">
+        <h2 class="card-title">{article.data.title}</h2>
+        <p class="muted">{formatDate(article.data.updatedDate || article.data.date)}</p>
+        <span class="card-cta">
           To Article →
         </span>
       </div>
@@ -62,10 +62,10 @@ const { articles, pillars, page, pages, articlesBase } = Astro.props;
 {pages > 1 && (
   <nav class="mt-10 flex gap-3" aria-label="Pagination">
     {page > 1 && (
-      <a class="nav-link border border-border" href={page === 2 ? `/${articlesBase}/` : `/${articlesBase}/${page - 1}/`}>Previous</a>
+      <a class="btn btn-secondary" href={page === 2 ? `/${articlesBase}/` : `/${articlesBase}/${page - 1}/`}>Previous</a>
     )}
     {page < pages && (
-      <a class="nav-link border border-border" href={`/${articlesBase}/${page + 1}/`}>Next</a>
+      <a class="btn btn-secondary" href={`/${articlesBase}/${page + 1}/`}>Next</a>
     )}
   </nav>
 )}
