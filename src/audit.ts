@@ -16,6 +16,21 @@ export interface AuditConfig {
   /** When true (default), articles must contain WHERE-THINGS-STAND markers. */
   requireWts?: boolean;
   /**
+   * When true, article pages fail if "Key Takeaways" first appears after the
+   * first 60% of the article HTML. A missing phrase is not an error. Default off.
+   */
+  requireKeyTakeawaysEarly?: boolean;
+  /**
+   * When true, article pages fail if the first paragraph after the h1 has
+   * fewer than 120 trimmed characters. Default off.
+   */
+  requireLeadAnswer?: boolean;
+  /**
+   * When set, article pages fail if the JSON-LD freshness date (dateModified,
+   * else datePublished) is older than this many UTC days.
+   */
+  maxContentAgeDays?: number;
+  /**
    * Pillar-hub listing pages under the articles base that are not articles.
    * When omitted, every articles-base detail page is audited as an article.
    */
@@ -46,6 +61,49 @@ function matchesPillarHub(rel: string, pillarHubs: PillarHubMatcher | undefined)
   if (typeof pillarHubs === "function") return pillarHubs(pathname);
   const target = normalizeAuditPath(pathname);
   return pillarHubs.some((hub) => normalizeAuditPath(hub) === target);
+}
+
+const ARTICLE_JSONLD = new Set(["Article", "BlogPosting", "NewsArticle"]);
+
+function jsonLdTypeNames(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string");
+}
+
+/** dateModified, else datePublished, from the first Article/BlogPosting/NewsArticle node. Empty string when that node has no date. */
+function articleFreshness(node: unknown): string | undefined {
+  let found: string | undefined;
+  const visit = (value: unknown): void => {
+    if (found !== undefined) return;
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    const obj = value as Record<string, unknown>;
+    if (jsonLdTypeNames(obj["@type"]).some((type) => ARTICLE_JSONLD.has(type))) {
+      const modified = typeof obj.dateModified === "string" ? obj.dateModified.trim() : "";
+      const published = typeof obj.datePublished === "string" ? obj.datePublished.trim() : "";
+      found = modified || published;
+      return;
+    }
+    if (Array.isArray(obj["@graph"])) visit(obj["@graph"]);
+  };
+  visit(node);
+  return found;
+}
+
+function utcDateOnly(value: string): number | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value.trim());
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const utc = Date.UTC(year, month - 1, day);
+  const date = new Date(utc);
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+  return utc;
 }
 
 function collectJsonLdTypes(node: unknown, types: Set<string>): void {
@@ -169,6 +227,7 @@ export function runAudit(config: AuditConfig): string[] {
 
       const jsonLdTypes = new Set<string>();
       let jsonLdBlocks = 0;
+      let freshnessRaw: string | undefined;
       $("script[type='application/ld+json']").each((_, el) => {
         const raw = $(el).text();
         let parsed: unknown;
@@ -180,6 +239,10 @@ export function runAudit(config: AuditConfig): string[] {
         }
         jsonLdBlocks += 1;
         collectJsonLdTypes(parsed, jsonLdTypes);
+        if (freshnessRaw === undefined) {
+          const freshness = articleFreshness(parsed);
+          if (freshness !== undefined) freshnessRaw = freshness;
+        }
       });
       if (jsonLdBlocks > 0 || isHub) {
         if (!jsonLdTypes.has("Organization")) fail(`${rel}: JSON-LD missing Organization`);
@@ -216,6 +279,45 @@ export function runAudit(config: AuditConfig): string[] {
         if (requireWts && !html.includes("WHERE-THINGS-STAND:START")) fail(`${rel}: missing WTS START marker`);
         if (requireWts && !html.includes("WHERE-THINGS-STAND:END")) fail(`${rel}: missing WTS END marker`);
         if (requireKeyTakeaways && !html.includes("Key Takeaways")) fail(`${rel}: missing Key Takeaways`);
+        if (config.requireKeyTakeawaysEarly) {
+          const articleHtml = $("article").first().html() ?? html;
+          const index = articleHtml.indexOf("Key Takeaways");
+          if (index !== -1 && index > articleHtml.length * 0.6) {
+            fail(`${rel}: Key Takeaways appears after the first 60% of the article`);
+          }
+        }
+        if (config.requireLeadAnswer) {
+          let seenH1 = false;
+          let foundLead = false;
+          let leadLength = 0;
+          $("h1, p").each((_, el) => {
+            if (foundLead || el.type !== "tag") return;
+            if (el.name === "h1") {
+              seenH1 = true;
+              return;
+            }
+            if (el.name === "p" && seenH1) {
+              leadLength = $(el).text().trim().length;
+              foundLead = true;
+            }
+          });
+          if (!seenH1 || !foundLead || leadLength < 120) {
+            fail(`${rel}: lead answer is ${leadLength} characters (want at least 120)`);
+          }
+        }
+        if (typeof config.maxContentAgeDays === "number") {
+          const parsedDay = freshnessRaw ? utcDateOnly(freshnessRaw) : null;
+          if (parsedDay == null) {
+            fail(`${rel}: article freshness date is missing`);
+          } else {
+            const now = new Date();
+            const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+            const ageDays = (today - parsedDay) / 86400000;
+            if (ageDays > config.maxContentAgeDays) {
+              fail(`${rel}: content is ${ageDays} days old (max ${config.maxContentAgeDays})`);
+            }
+          }
+        }
       }
     }
 

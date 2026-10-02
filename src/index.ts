@@ -13,5 +13,7 @@ export { runAudit } from "./audit";
 export type { AuditConfig, PillarHubMatcher } from "./audit";
 export { generateLlmsTxt } from "./generators/llms";
 export type { LlmsExtraPage } from "./generators/llms";
+export { generateArticleMarkdown } from "./generators/markdown";
+export { generateLlmsFullTxt } from "./generators/llms-full";
 export { generateRss } from "./generators/rss";
 export { generateRobotsTxt } from "./generators/robots";

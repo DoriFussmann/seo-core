@@ -56,6 +56,11 @@ const person = personNode({
   siteUrl,
 });
 
+const about = [
+  ...(data.pillarKeyword ? [{ "@type": "Thing", name: data.pillarKeyword }] : []),
+  ...data.tags.map((tag) => ({ "@type": "Thing", name: tag })),
+];
+
 const articleNode: Record<string, unknown> = {
   "@type": data.schemaType,
   "@id": `${pageUrl}#article`,
@@ -69,10 +74,23 @@ const articleNode: Record<string, unknown> = {
   mainEntityOfPage: { "@id": pageUrl },
   isPartOf: { "@id": `${siteUrl}#website` },
   keywords: data.tags.join(", "),
+  wordCount: (article.body ?? "").split(/\s+/).length,
+  about,
 };
 if (data.pillarKeyword) articleNode.articleSection = data.pillarKeyword;
 
-const graph: unknown[] = [orgNode(site), websiteNode(site), person, breadcrumbNode(crumbs, siteUrl), articleNode];
+const breadcrumb = breadcrumbNode(crumbs, siteUrl);
+const webPageNode = {
+  "@type": "WebPage",
+  "@id": pageUrl,
+  url: pageUrl,
+  name: data.title,
+  dateModified,
+  isPartOf: { "@id": `${siteUrl}#website` },
+  breadcrumb: { "@id": breadcrumb["@id"] },
+};
+
+const graph: unknown[] = [orgNode(site), websiteNode(site), person, breadcrumb, webPageNode, articleNode];
 if (data.faqs.length) graph.push(faqPageNode(data.faqs, pageUrl));
 
 const jsonLd = { "@context": "https://schema.org", "@graph": graph };
@@ -88,6 +106,7 @@ const jsonLd = { "@context": "https://schema.org", "@graph": graph };
   locale={data.locale}
   twitterCard={data.twitterCard}
   jsonLd={jsonLd}
+  alternateMarkdown={`${canonicalPath}index.md`}
   articleMeta={{
     publishedTime: data.date,
     modifiedTime: dateModified,

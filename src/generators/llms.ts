@@ -38,8 +38,20 @@ export function generateLlmsTxt(config: {
   team: LlmsTeamMember[];
   services: LlmsService[];
   extraPages?: LlmsExtraPage[];
+  /** When true (default), each article line links to its markdown mirror. */
+  includeMarkdownLinks?: boolean;
 }): string {
-  const { siteUrl, siteName, siteTagline, articlesBase, articles, team, services, extraPages } = config;
+  const {
+    siteUrl,
+    siteName,
+    siteTagline,
+    articlesBase,
+    articles,
+    team,
+    services,
+    extraPages,
+    includeMarkdownLinks = true,
+  } = config;
 
   function norm(value?: string) {
     return (value ?? "").trim().toLowerCase();
@@ -80,7 +92,9 @@ export function generateLlmsTxt(config: {
     list.sort((a, b) => Number(isPillar(b)) - Number(isPillar(a)));
     lines.push(`### ${pillar}`);
     for (const article of list) {
-      lines.push(`- [${article.data.title}](${abs(`/${articlesBase}/${article.id}/`, siteUrl)}): ${article.data.description}`);
+      const htmlUrl = abs(`/${articlesBase}/${article.id}/`, siteUrl);
+      const markdown = includeMarkdownLinks ? ` (markdown: ${htmlUrl}index.md)` : "";
+      lines.push(`- [${article.data.title}](${htmlUrl}): ${article.data.description}${markdown}`);
     }
     lines.push("");
   }
