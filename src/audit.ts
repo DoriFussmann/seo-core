@@ -21,7 +21,8 @@ export interface AuditConfig {
    */
   requireKeyTakeawaysEarly?: boolean;
   /**
-   * When true, article pages fail if the first paragraph after the h1 has
+   * When true, article pages fail if the first paragraph in `.prose-article`
+   * (or the first `<p>` outside `<header>` when that class is absent) has
    * fewer than 120 trimmed characters. Default off.
    */
   requireLeadAnswer?: boolean;
@@ -287,21 +288,24 @@ export function runAudit(config: AuditConfig): string[] {
           }
         }
         if (config.requireLeadAnswer) {
-          let seenH1 = false;
+          const prose = $(".prose-article").first();
           let foundLead = false;
           let leadLength = 0;
-          $("h1, p").each((_, el) => {
-            if (foundLead || el.type !== "tag") return;
-            if (el.name === "h1") {
-              seenH1 = true;
-              return;
-            }
-            if (el.name === "p" && seenH1) {
-              leadLength = $(el).text().trim().length;
+          if (prose.length) {
+            const lead = prose.find("p").first();
+            if (lead.length) {
+              leadLength = lead.text().trim().length;
               foundLead = true;
             }
-          });
-          if (!seenH1 || !foundLead || leadLength < 120) {
+          } else {
+            $("p").each((_, el) => {
+              if (foundLead) return;
+              if ($(el).closest("header").length) return;
+              leadLength = $(el).text().trim().length;
+              foundLead = true;
+            });
+          }
+          if (!foundLead || leadLength < 120) {
             fail(`${rel}: lead answer is ${leadLength} characters (want at least 120)`);
           }
         }
