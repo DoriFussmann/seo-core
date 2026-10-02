@@ -13,13 +13,13 @@ export function generateArticleMarkdown(config: {
       externalLinks?: { label: string; url: string }[];
     };
   };
-  author: { id: string; name?: string; data?: { name: string } };
+  author: { name: string; id: string };
   siteUrl: string;
   articlesBase: string;
 }): string {
   const { article, author, siteUrl, articlesBase } = config;
   const data = article.data;
-  const authorName = author.name ?? author.data?.name ?? "";
+  const authorName = author.name;
   const canonical = abs(`/${articlesBase}/${article.id}/`, siteUrl);
   const authorUrl = abs(`/team/${author.id}/`, siteUrl);
 
@@ -36,14 +36,20 @@ export function generateArticleMarkdown(config: {
   }
   lines.push(`Author: [${authorName}](${authorUrl})`, "", (article.body ?? "").trimEnd());
 
-  lines.push("", "## FAQ");
-  for (const faq of data.faqs ?? []) {
-    lines.push("", `### ${faq.question}`, "", faq.answer);
+  const faqs = data.faqs ?? [];
+  if (faqs.length > 0) {
+    lines.push("", "## FAQ");
+    for (const faq of faqs) {
+      lines.push("", `### ${faq.question}`, "", faq.answer);
+    }
   }
 
-  lines.push("", "## Sources");
-  for (const link of data.externalLinks ?? []) {
-    lines.push(`- [${link.label}](${link.url})`);
+  const links = data.externalLinks ?? [];
+  if (links.length > 0) {
+    lines.push("", "## Sources", "");
+    for (const link of links) {
+      lines.push(`- [${link.label}](${link.url})`);
+    }
   }
 
   return `${lines.join("\n").replace(/\n{3,}/g, "\n\n").replace(/\n+$/, "")}\n`;
