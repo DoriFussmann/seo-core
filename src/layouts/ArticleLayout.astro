@@ -27,6 +27,8 @@ const { article, author, Layout, siteUrl, siteName, articlesBase, sameAs = [] } 
 const { Content, headings } = await render(article);
 const data = article.data;
 const slug = article.id;
+// Resolved by articleSchema; the fallback covers sites still on a raw schema.
+const heading = data.h1 || data.title;
 const canonicalPath = `/${articlesBase}/${slug}/`;
 const pageUrl = abs(canonicalPath, siteUrl);
 const dateModified = data.updatedDate || data.date;
@@ -128,7 +130,7 @@ const jsonLd = { "@context": "https://schema.org", "@graph": graph };
       />
     </div>
     <header class="mb-8 flex flex-col gap-3">
-      <h1 class="h1">{data.title}</h1>
+      <h1 class="h1">{heading}</h1>
       <p class="muted">
         By <a href={`/team/${author.id}/`}>{author.data.name}</a>
         · {formatDate(data.date)}
@@ -139,7 +141,7 @@ const jsonLd = { "@context": "https://schema.org", "@graph": graph };
     </header>
     <TableOfContents headings={headings} />
     <div class="prose-article">
-      <ArticleBody title={data.title}><Content /></ArticleBody>
+      <ArticleBody title={data.title} h1={heading}><Content /></ArticleBody>
     </div>
     <FaqBlock faqs={data.faqs} />
     <RelatedLinks links={data.internalLinks} articlesBase={articlesBase} />

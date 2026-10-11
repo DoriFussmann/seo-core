@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ISO_DATE, toIsoDateString } from "./lib/isoDate";
+import { resolveH1 } from "./lib/h1";
 
 /** YAML Date or YYYY-MM-DD string → YYYY-MM-DD string. */
 export const isoDate = z.union([
@@ -9,9 +10,15 @@ export const isoDate = z.union([
 
 type ImageFn = () => z.ZodTypeAny;
 
-export function articleSchema(image: ImageFn) {
+/**
+ * Raw article object schema. Use this when a site needs to `.extend()` the
+ * article fields, then wrap the result with `withResolvedH1()`.
+ */
+export function articleBaseSchema(image: ImageFn) {
   return z.object({
     title: z.string().min(55).max(60),
+    /** On-page heading. Optional: resolved from the title when absent (see lib/h1). */
+    h1: z.string().optional(),
     description: z.string().min(140).max(160),
     date: isoDate,
     updatedDate: isoDate.optional(),
@@ -44,6 +51,22 @@ export function articleSchema(image: ImageFn) {
     faqs: z.array(z.object({ question: z.string(), answer: z.string() })).default([]),
     published_url: z.string().url().optional(),
   });
+}
+
+/** Adds a resolved, always-present `h1` (distinct from `title` whenever possible). */
+export function withResolvedH1<T extends z.ZodTypeAny>(schema: T) {
+  return schema.transform((data: z.output<T>) => ({
+    ...data,
+    h1: resolveH1(data as { title: string; h1?: string }),
+  }));
+}
+
+/**
+ * Article collection schema. `data.h1` is always populated after parsing, so
+ * every layout (seo-core's or a site's own) can render it without extra code.
+ */
+export function articleSchema(image: ImageFn) {
+  return withResolvedH1(articleBaseSchema(image));
 }
 
 export function teamSchema(image: ImageFn) {

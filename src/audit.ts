@@ -1,6 +1,10 @@
 import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import * as cheerio from "cheerio";
+import { H1_MIN_LENGTH, normalizeHeading } from "./lib/h1";
+
+/** "warn" reports without failing the build; "error" fails it; "off" skips the check. */
+export type AuditLevel = "off" | "warn" | "error";
 
 /** URL paths (e.g. "/articles/friend-books/") or a predicate over the page pathname. */
 export type PillarHubMatcher = string[] | ((pathname: string) => boolean);
@@ -36,6 +40,10 @@ export interface AuditConfig {
    * When omitted, every articles-base detail page is audited as an article.
    */
   pillarHubs?: PillarHubMatcher;
+  /** Article <h1> identical to its <title>. Default "warn". */
+  h1MatchesTitle?: AuditLevel;
+  /** The same <title> (any page) or article <h1> used on more than one page. Default "warn". */
+  duplicateHeadings?: AuditLevel;
 }
 
 function pagePathname(rel: string): string {
@@ -130,9 +138,27 @@ export function runAudit(config: AuditConfig): string[] {
   const requireWts = config.requireWts ?? true;
   const articlesDir = config.articlesDir ?? join(distDir, "..", "src", "content", "articles");
   const errors: string[] = [];
+  const warnings: string[] = [];
+  const h1MatchesTitle = config.h1MatchesTitle ?? "warn";
+  const duplicateHeadings = config.duplicateHeadings ?? "warn";
 
   function fail(msg: string) {
     errors.push(msg);
+  }
+
+  function report(level: AuditLevel, msg: string) {
+    if (level === "error") errors.push(msg);
+    else if (level === "warn") warnings.push(msg);
+  }
+
+  const pagesByTitle = new Map<string, { text: string; pages: string[] }>();
+  const articlesByH1 = new Map<string, { text: string; pages: string[] }>();
+  function track(map: Map<string, { text: string; pages: string[] }>, text: string, rel: string) {
+    const key = normalizeHeading(text);
+    if (!key) return;
+    const entry = map.get(key) ?? { text, pages: [] };
+    entry.pages.push(rel);
+    map.set(key, entry);
   }
 
   function walkHtml(dir: string, acc: string[] = []): string[] {
@@ -196,6 +222,17 @@ export function runAudit(config: AuditConfig): string[] {
       if (!title) fail(`${rel}: missing <title>`);
       if (isArticle && (title.length < 55 || title.length > 60)) {
         fail(`${rel}: article title length ${title.length} (want 55–60)`);
+      }
+      if (title && !is404) track(pagesByTitle, title, rel);
+      if (isArticle && h1.length === 1) {
+        const h1Text = h1.first().text().replace(/\s+/g, " ").trim();
+        track(articlesByH1, h1Text, rel);
+        if (title && normalizeHeading(h1Text) === normalizeHeading(title)) {
+          report(
+            h1MatchesTitle,
+            `${rel}: h1 duplicates <title> — set an explicit \`h1\` in frontmatter (at least ${H1_MIN_LENGTH} chars, different from the title)`,
+          );
+        }
       }
 
       const desc = $('meta[name="description"]').attr("content") || "";
@@ -325,6 +362,17 @@ export function runAudit(config: AuditConfig): string[] {
       }
     }
 
+    for (const [label, map] of [
+      ["<title>", pagesByTitle],
+      ["article h1", articlesByH1],
+    ] as const) {
+      for (const { text, pages } of map.values()) {
+        if (pages.length > 1) {
+          report(duplicateHeadings, `duplicate ${label} "${text}" on ${pages.length} pages: ${pages.join(", ")}`);
+        }
+      }
+    }
+
     const extras = ["sitemap-index.xml", "sitemap-0.xml", "rss.xml", "llms.txt", "robots.txt"].map((n) =>
       existsSync(join(distDir, n)) ? readFileSync(join(distDir, n), "utf8") : "",
     );
@@ -340,6 +388,11 @@ export function runAudit(config: AuditConfig): string[] {
       if (haystack.includes("Site Name")) fail("activated site still contains Site Name");
       if (haystack.includes("TEMPLATE:")) fail("activated site still contains TEMPLATE:");
     }
+  }
+
+  if (warnings.length) {
+    console.warn(`audit-dist: ${warnings.length} warning(s)`);
+    for (const warning of warnings) console.warn(` ! ${warning}`);
   }
 
   if (errors.length) {
