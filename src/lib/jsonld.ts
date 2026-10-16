@@ -3,16 +3,40 @@ import { abs } from "./url";
 export interface SiteIdentity {
   siteUrl: string;
   siteName: string;
+  /**
+   * Organization logo: a site path ("/logo.png") or absolute URL to a raster
+   * image (PNG, JPEG or WebP) at least 112×112px. The audit fails SVG and
+   * favicon logos.
+   */
+  logo: string;
   sameAs?: string[];
+}
+
+/** Author profile path for a team slug. May include a fragment ("/about/#jane-doe"). */
+export type AuthorPath = (slug: string) => string;
+
+export const defaultAuthorPath: AuthorPath = (slug) => `/team/${slug}/`;
+
+export function orgId(siteUrl: string): string {
+  return `${siteUrl}#org`;
+}
+
+export function websiteId(siteUrl: string): string {
+  return `${siteUrl}#website`;
+}
+
+/** Absolute author profile URL, fragment kept ("https://site/about/#jane-doe"). */
+export function authorUrl(slug: string, siteUrl: string, authorPath: AuthorPath = defaultAuthorPath): string {
+  return abs(authorPath(slug), siteUrl);
 }
 
 export function orgNode(site: SiteIdentity) {
   return {
     "@type": "Organization",
-    "@id": `${site.siteUrl}#org`,
+    "@id": orgId(site.siteUrl),
     name: site.siteName,
-    url: site.siteUrl,
-    logo: `${site.siteUrl.replace(/\/+$/, "")}/favicon.svg`,
+    url: abs("/", site.siteUrl),
+    logo: abs(site.logo, site.siteUrl),
     sameAs: site.sameAs ?? [],
   };
 }
@@ -20,10 +44,10 @@ export function orgNode(site: SiteIdentity) {
 export function websiteNode(site: SiteIdentity) {
   return {
     "@type": "WebSite",
-    "@id": `${site.siteUrl}#website`,
+    "@id": websiteId(site.siteUrl),
     name: site.siteName,
-    url: site.siteUrl,
-    publisher: { "@id": `${site.siteUrl}#org` },
+    url: abs("/", site.siteUrl),
+    publisher: { "@id": orgId(site.siteUrl) },
   };
 }
 
@@ -52,17 +76,20 @@ export function personNode(opts: {
   sameAs: string[];
   knowsAbout: string[];
   siteUrl: string;
+  authorPath?: AuthorPath;
 }) {
+  const url = authorUrl(opts.slug, opts.siteUrl, opts.authorPath);
   return {
     "@type": "Person",
-    "@id": `${opts.siteUrl}/team/${opts.slug}/#person`,
+    // A profile URL with a fragment already identifies the person on that page.
+    "@id": url.includes("#") ? url : `${url}#person`,
     name: opts.name,
     jobTitle: opts.role,
     description: opts.description,
     image: opts.image,
     sameAs: opts.sameAs,
     knowsAbout: opts.knowsAbout,
-    url: abs(`/team/${opts.slug}/`, opts.siteUrl),
+    url,
   };
 }
 

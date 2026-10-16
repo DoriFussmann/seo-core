@@ -3,11 +3,12 @@ interface Props {
   name: string;
   role: string;
   bio: string;
-  slug: string;
+  /** Author profile link (site path). */
+  href: string;
   photoSrc: string;
   photoAlt: string;
 }
-const { name, role, bio, slug, photoSrc, photoAlt } = Astro.props;
+const { name, role, bio, href, photoSrc, photoAlt } = Astro.props;
 ---
 
 <section class="author-bio" aria-labelledby="author-heading">
@@ -15,7 +16,7 @@ const { name, role, bio, slug, photoSrc, photoAlt } = Astro.props;
   <div class="flex gap-4 items-start">
     <img src={photoSrc} alt={photoAlt} width="96" height="96" loading="lazy" class="avatar" />
     <div class="flex-1 min-w-0 flex flex-col gap-2">
-      <p><a href={`/team/${slug}/`}>{name}</a></p>
+      <p><a href={href}>{name}</a></p>
       <p class="muted">{role}</p>
       <p>{bio}</p>
     </div>

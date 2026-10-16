@@ -11,7 +11,7 @@ export function generateRss(config: {
   site: string | URL;
   articles: Array<{
     id: string;
-    body: string;
+    body?: string;
     data: { title: string; description: string; date: string };
   }>;
 }) {
@@ -25,7 +25,7 @@ export function generateRss(config: {
       description: article.data.description,
       pubDate: new Date(`${article.data.date}T00:00:00.000Z`),
       link: `/${config.articlesBase}/${article.id}/`,
-      content: parser.render(article.body),
+      content: parser.render(article.body ?? ""),
     })),
   });
 }

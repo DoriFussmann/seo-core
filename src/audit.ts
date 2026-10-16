@@ -1,7 +1,10 @@
 import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 import * as cheerio from "cheerio";
+import { DEFAULT_SITEMAP_PATH } from "./generators/robots";
+import { distRelative, pagePathname, walkHtml } from "./lib/dist";
 import { H1_MIN_LENGTH, normalizeHeading } from "./lib/h1";
+import { imageSize } from "./lib/image-size";
 
 /** "warn" reports without failing the build; "error" fails it; "off" skips the check. */
 export type AuditLevel = "off" | "warn" | "error";
@@ -9,12 +12,17 @@ export type AuditLevel = "off" | "warn" | "error";
 /** URL paths (e.g. "/articles/friend-books/") or a predicate over the page pathname. */
 export type PillarHubMatcher = string[] | ((pathname: string) => boolean);
 
+/** Google's minimum logo size for Organization rich results. */
+export const MIN_LOGO_PX = 112;
+
 export interface AuditConfig {
   siteUrl: string;
   siteName: string;
   articlesBase: string;
   distDir: string;
   articlesDir?: string;
+  /** Sitemap the site emits (and robots.txt must reference). Default "/sitemap.xml". */
+  sitemapPath?: string;
   /** When true (default), articles must contain "Key Takeaways". */
   requireKeyTakeaways?: boolean;
   /** When true (default), articles must contain WHERE-THINGS-STAND markers. */
@@ -44,13 +52,18 @@ export interface AuditConfig {
   h1MatchesTitle?: AuditLevel;
   /** The same <title> (any page) or article <h1> used on more than one page. Default "warn". */
   duplicateHeadings?: AuditLevel;
-}
-
-function pagePathname(rel: string): string {
-  if (rel === "index.html" || rel === "") return "/";
-  const withoutFile = rel.replace(/index\.html$/, "");
-  const withSlash = withoutFile.endsWith("/") ? withoutFile : `${withoutFile}/`;
-  return `/${withSlash.replace(/^\/+/, "")}`;
+  /** Organization logo is SVG, a favicon, missing from dist, or under 112px. Default "error". */
+  organizationLogo?: AuditLevel;
+  /** Organization `sameAs` is empty. Default "warn". */
+  emptySameAs?: AuditLevel;
+  /** Article has fewer than `minExternalLinks` unique external links. Default "warn". */
+  externalLinks?: AuditLevel;
+  /** Default 3. */
+  minExternalLinks?: number;
+  /** "According to <Source>" with no link in the same sentence. Default "warn". */
+  unlinkedAttributions?: AuditLevel;
+  /** Frontmatter `slug` differs from the article's filename. Default "error". */
+  slugMatchesFilename?: AuditLevel;
 }
 
 function normalizeAuditPath(path: string): string {
@@ -80,27 +93,26 @@ function jsonLdTypeNames(value: unknown): string[] {
   return value.filter((item): item is string => typeof item === "string");
 }
 
+/** Every object node in a JSON-LD document, @graph members included. */
+function jsonLdNodes(value: unknown, acc: Record<string, unknown>[] = []): Record<string, unknown>[] {
+  if (Array.isArray(value)) {
+    for (const item of value) jsonLdNodes(item, acc);
+    return acc;
+  }
+  if (!value || typeof value !== "object") return acc;
+  const obj = value as Record<string, unknown>;
+  acc.push(obj);
+  if (Array.isArray(obj["@graph"])) jsonLdNodes(obj["@graph"], acc);
+  return acc;
+}
+
 /** dateModified, else datePublished, from the first Article/BlogPosting/NewsArticle node. Empty string when that node has no date. */
-function articleFreshness(node: unknown): string | undefined {
-  let found: string | undefined;
-  const visit = (value: unknown): void => {
-    if (found !== undefined) return;
-    if (Array.isArray(value)) {
-      for (const item of value) visit(item);
-      return;
-    }
-    if (!value || typeof value !== "object") return;
-    const obj = value as Record<string, unknown>;
-    if (jsonLdTypeNames(obj["@type"]).some((type) => ARTICLE_JSONLD.has(type))) {
-      const modified = typeof obj.dateModified === "string" ? obj.dateModified.trim() : "";
-      const published = typeof obj.datePublished === "string" ? obj.datePublished.trim() : "";
-      found = modified || published;
-      return;
-    }
-    if (Array.isArray(obj["@graph"])) visit(obj["@graph"]);
-  };
-  visit(node);
-  return found;
+function articleFreshness(nodes: Record<string, unknown>[]): string | undefined {
+  const node = nodes.find((n) => jsonLdTypeNames(n["@type"]).some((type) => ARTICLE_JSONLD.has(type)));
+  if (!node) return undefined;
+  const modified = typeof node.dateModified === "string" ? node.dateModified.trim() : "";
+  const published = typeof node.datePublished === "string" ? node.datePublished.trim() : "";
+  return modified || published;
 }
 
 function utcDateOnly(value: string): number | null {
@@ -115,32 +127,64 @@ function utcDateOnly(value: string): number | null {
   return utc;
 }
 
-function collectJsonLdTypes(node: unknown, types: Set<string>): void {
-  if (Array.isArray(node)) {
-    for (const item of node) collectJsonLdTypes(item, types);
-    return;
+function logoUrl(node: Record<string, unknown>): string {
+  const logo = node.logo;
+  if (typeof logo === "string") return logo.trim();
+  if (logo && typeof logo === "object") {
+    const url = (logo as Record<string, unknown>).url;
+    if (typeof url === "string") return url.trim();
   }
-  if (!node || typeof node !== "object") return;
-  const obj = node as Record<string, unknown>;
-  const t = obj["@type"];
-  if (typeof t === "string") types.add(t);
-  else if (Array.isArray(t)) {
-    for (const x of t) if (typeof x === "string") types.add(x);
-  }
-  if (Array.isArray(obj["@graph"])) {
-    for (const item of obj["@graph"]) collectJsonLdTypes(item, types);
-  }
+  return "";
+}
+
+function frontmatterScalar(raw: string, key: string): string | undefined {
+  const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(raw)?.[1];
+  if (!fm) return undefined;
+  const match = new RegExp(`^${key}:\\s*(.+?)\\s*$`, "m").exec(fm);
+  if (!match) return undefined;
+  return match[1].replace(/^(["'])(.*)\1$/, "$2");
+}
+
+const ATTRIBUTION = /\b[Aa]ccording to (?:the |a |an )?[A-Z][\w&'’.-]*/g;
+const LINK_OPEN = "\u0001";
+
+/** Sentences inside an article body that attribute a claim to a named source without linking it. */
+function unlinkedAttributionsIn($: cheerio.CheerioAPI, body: ReturnType<cheerio.CheerioAPI>): string[] {
+  const found: string[] = [];
+  body.find("p, li, td, blockquote").each((_, el) => {
+    const block = $(el).clone();
+    if (block.find("p, li").length) return; // the nested block is visited on its own
+    block.find("a[href]").each((__, a) => {
+      const text = $(a).text().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      $(a).replaceWith(`${LINK_OPEN}${text}`);
+    });
+    const text = block.text().replace(/\s+/g, " ").trim();
+    for (const sentence of text.split(/(?<=[.!?])\s+(?=[A-Z0-9"“(])/)) {
+      ATTRIBUTION.lastIndex = 0;
+      if (ATTRIBUTION.test(sentence) && !sentence.includes(LINK_OPEN)) {
+        found.push(sentence.length > 110 ? `${sentence.slice(0, 107)}…` : sentence);
+      }
+    }
+  });
+  return found;
 }
 
 export function runAudit(config: AuditConfig): string[] {
-  const { siteUrl, siteName, articlesBase, distDir } = config;
+  const { siteUrl, articlesBase, distDir } = config;
   const requireKeyTakeaways = config.requireKeyTakeaways ?? true;
   const requireWts = config.requireWts ?? true;
   const articlesDir = config.articlesDir ?? join(distDir, "..", "src", "content", "articles");
-  const errors: string[] = [];
-  const warnings: string[] = [];
+  const sitemapFile = (config.sitemapPath ?? DEFAULT_SITEMAP_PATH).replace(/^\/+/, "");
   const h1MatchesTitle = config.h1MatchesTitle ?? "warn";
   const duplicateHeadings = config.duplicateHeadings ?? "warn";
+  const organizationLogo = config.organizationLogo ?? "error";
+  const emptySameAs = config.emptySameAs ?? "warn";
+  const externalLinks = config.externalLinks ?? "warn";
+  const minExternalLinks = config.minExternalLinks ?? 3;
+  const unlinkedAttributions = config.unlinkedAttributions ?? "warn";
+  const slugMatchesFilename = config.slugMatchesFilename ?? "error";
+  const errors: string[] = [];
+  const warnings: string[] = [];
 
   function fail(msg: string) {
     errors.push(msg);
@@ -161,17 +205,6 @@ export function runAudit(config: AuditConfig): string[] {
     map.set(key, entry);
   }
 
-  function walkHtml(dir: string, acc: string[] = []): string[] {
-    if (!existsSync(dir)) return acc;
-    for (const name of readdirSync(dir)) {
-      const full = join(dir, name);
-      const st = statSync(full);
-      if (st.isDirectory()) walkHtml(full, acc);
-      else if (name.endsWith(".html")) acc.push(full);
-    }
-    return acc;
-  }
-
   function fileForPath(pathname: string): string | null {
     const clean = pathname.split("#")[0].split("?")[0];
     if (!clean || clean === "/") return join(distDir, "index.html");
@@ -185,12 +218,34 @@ export function runAudit(config: AuditConfig): string[] {
     return null;
   }
 
-  function draftSlugs(): string[] {
+  function articleFiles(): { slug: string; raw: string }[] {
     if (!existsSync(articlesDir)) return [];
     return readdirSync(articlesDir)
       .filter((f) => f.endsWith(".md"))
-      .filter((f) => /^draft:\s*true\s*$/m.test(readFileSync(join(articlesDir, f), "utf8")))
-      .map((f) => f.replace(/\.md$/, ""));
+      .map((f) => ({ slug: f.replace(/\.md$/, ""), raw: readFileSync(join(articlesDir, f), "utf8") }));
+  }
+
+  const checkedLogos = new Map<string, string | null>();
+  function logoProblem(url: string, origin: string): string | null {
+    if (!url) return "Organization logo is missing";
+    if (/\.svg(?:[?#].*)?$/i.test(url)) return `Organization logo is an SVG (${url}); use a PNG, JPEG or WebP`;
+    if (/favicon/i.test(url)) return `Organization logo is a favicon (${url}); use a dedicated logo image`;
+    let pathname: string;
+    try {
+      const parsed = new URL(url, origin);
+      if (parsed.origin !== origin) return null; // hosted elsewhere: cannot measure from dist
+      pathname = parsed.pathname;
+    } catch {
+      return `Organization logo is not a valid URL (${url})`;
+    }
+    const file = fileForPath(pathname);
+    if (!file) return `Organization logo ${url} is not in dist`;
+    const size = imageSize(readFileSync(file));
+    if (!size || size.format === "gif") return `Organization logo ${url} is not a PNG, JPEG or WebP`;
+    if (size.width < MIN_LOGO_PX || size.height < MIN_LOGO_PX) {
+      return `Organization logo ${url} is ${size.width}×${size.height}px (want at least ${MIN_LOGO_PX}×${MIN_LOGO_PX})`;
+    }
+    return null;
   }
 
   if (!existsSync(distDir)) {
@@ -198,11 +253,20 @@ export function runAudit(config: AuditConfig): string[] {
   } else {
     const htmlFiles = walkHtml(distDir);
     const origin = new URL(siteUrl).origin;
-    const drafts = draftSlugs();
+    const articles = articleFiles();
+    const drafts = articles.filter((a) => /^draft:\s*true\s*$/m.test(a.raw)).map((a) => a.slug);
     const distTextBundle = htmlFiles.map((f) => readFileSync(f, "utf8")).join("\n");
+    let sameAsChecked = false;
+
+    for (const article of articles) {
+      const slug = frontmatterScalar(article.raw, "slug");
+      if (slug !== undefined && slug !== article.slug) {
+        report(slugMatchesFilename, `${article.slug}.md: frontmatter slug "${slug}" does not match the filename`);
+      }
+    }
 
     for (const file of htmlFiles) {
-      const rel = relative(distDir, file).replace(/\\/g, "/");
+      const rel = distRelative(distDir, file);
       const html = readFileSync(file, "utf8");
       const $ = cheerio.load(html);
       const is404 = rel.includes("404");
@@ -263,34 +327,42 @@ export function runAudit(config: AuditConfig): string[] {
       const ogImage = $('meta[property="og:image"]').attr("content");
       if (ogImage && !/^https?:\/\//.test(ogImage)) fail(`${rel}: og:image is not absolute`);
 
-      const jsonLdTypes = new Set<string>();
+      const nodes: Record<string, unknown>[] = [];
       let jsonLdBlocks = 0;
-      let freshnessRaw: string | undefined;
       $("script[type='application/ld+json']").each((_, el) => {
-        const raw = $(el).text();
-        let parsed: unknown;
         try {
-          parsed = JSON.parse(raw);
+          jsonLdNodes(JSON.parse($(el).text()), nodes);
+          jsonLdBlocks += 1;
         } catch {
           fail(`${rel}: JSON-LD did not parse`);
-          return;
-        }
-        jsonLdBlocks += 1;
-        collectJsonLdTypes(parsed, jsonLdTypes);
-        if (freshnessRaw === undefined) {
-          const freshness = articleFreshness(parsed);
-          if (freshness !== undefined) freshnessRaw = freshness;
         }
       });
+      const jsonLdTypes = new Set(nodes.flatMap((node) => jsonLdTypeNames(node["@type"])));
       if (jsonLdBlocks > 0 || isHub) {
         if (!jsonLdTypes.has("Organization")) fail(`${rel}: JSON-LD missing Organization`);
         if (!jsonLdTypes.has("WebSite")) fail(`${rel}: JSON-LD missing WebSite`);
         if (isArticle) {
-          if (!jsonLdTypes.has("Article") && !jsonLdTypes.has("BlogPosting") && !jsonLdTypes.has("NewsArticle")) {
+          if (![...ARTICLE_JSONLD].some((type) => jsonLdTypes.has(type))) {
             fail(`${rel}: article JSON-LD missing article type`);
           }
           if (!jsonLdTypes.has("BreadcrumbList")) fail(`${rel}: article JSON-LD missing BreadcrumbList`);
           if (!jsonLdTypes.has("Person")) fail(`${rel}: article JSON-LD missing Person`);
+        }
+      }
+
+      for (const org of nodes.filter((node) => jsonLdTypeNames(node["@type"]).includes("Organization"))) {
+        const url = logoUrl(org);
+        if (!checkedLogos.has(url)) {
+          checkedLogos.set(url, organizationLogo === "off" ? null : logoProblem(url, origin));
+          const problem = checkedLogos.get(url);
+          if (problem) report(organizationLogo, `${rel}: ${problem}`);
+        }
+        if (!sameAsChecked) {
+          sameAsChecked = true;
+          const sameAs = Array.isArray(org.sameAs) ? org.sameAs.filter((v) => typeof v === "string" && v.trim()) : [];
+          if (!sameAs.length) {
+            report(emptySameAs, `Organization sameAs is empty — list the brand's official profiles (LinkedIn, Crunchbase…) in SAME_AS`);
+          }
         }
       }
 
@@ -347,6 +419,7 @@ export function runAudit(config: AuditConfig): string[] {
           }
         }
         if (typeof config.maxContentAgeDays === "number") {
+          const freshnessRaw = articleFreshness(nodes);
           const parsedDay = freshnessRaw ? utcDateOnly(freshnessRaw) : null;
           if (parsedDay == null) {
             fail(`${rel}: article freshness date is missing`);
@@ -357,6 +430,32 @@ export function runAudit(config: AuditConfig): string[] {
             if (ageDays > config.maxContentAgeDays) {
               fail(`${rel}: content is ${ageDays} days old (max ${config.maxContentAgeDays})`);
             }
+          }
+        }
+
+        const article = $("article").first();
+        const scope = article.length ? article : $("main").first();
+        if (externalLinks !== "off") {
+          const external = new Set<string>();
+          scope.find("a[href]").each((_, el) => {
+            const href = $(el).attr("href") || "";
+            if (!/^https?:\/\//i.test(href)) return;
+            try {
+              const url = new URL(href);
+              if (url.origin !== origin) external.add(`${url.origin}${url.pathname}`);
+            } catch {
+              // malformed external href: not counted
+            }
+          });
+          if (external.size < minExternalLinks) {
+            report(externalLinks, `${rel}: ${external.size} external link(s) (want at least ${minExternalLinks})`);
+          }
+        }
+        if (unlinkedAttributions !== "off") {
+          const bodyEl = $("[data-article-body]").first();
+          const found = unlinkedAttributionsIn($, bodyEl.length ? bodyEl : scope);
+          for (const sentence of found) {
+            report(unlinkedAttributions, `${rel}: unlinked attribution — "${sentence}"`);
           }
         }
       }
@@ -373,12 +472,20 @@ export function runAudit(config: AuditConfig): string[] {
       }
     }
 
-    const extras = ["sitemap-index.xml", "sitemap-0.xml", "rss.xml", "llms.txt", "robots.txt"].map((n) =>
+    const sitemapAbs = `${origin}/${sitemapFile}`;
+    if (!existsSync(join(distDir, sitemapFile))) fail(`${sitemapFile} is missing from dist`);
+    const robots = existsSync(join(distDir, "robots.txt")) ? readFileSync(join(distDir, "robots.txt"), "utf8") : "";
+    if (!robots) fail("robots.txt is missing from dist");
+    else if (!new RegExp(`^Sitemap:\\s*${sitemapAbs.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`, "m").test(robots)) {
+      fail(`robots.txt does not reference ${sitemapAbs}`);
+    }
+
+    const extras = [sitemapFile, "sitemap-index.xml", "sitemap-0.xml", "rss.xml", "llms.txt", "llms-full.txt", "robots.txt"].map((n) =>
       existsSync(join(distDir, n)) ? readFileSync(join(distDir, n), "utf8") : "",
     );
     const haystack = [distTextBundle, ...extras].join("\n");
     for (const slug of drafts) {
-      if (haystack.includes(`/${articlesBase}/${slug}`)) {
+      if (haystack.includes(`/${articlesBase}/${slug}/`)) {
         fail(`draft slug ${slug} appears in dist/feeds`);
       }
     }

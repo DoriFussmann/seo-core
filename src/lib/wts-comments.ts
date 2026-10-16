@@ -59,8 +59,9 @@ export function rehypeEmitWtsComments() {
       }
 
       if (node.type === "comment" && typeof node.value === "string") {
-        if (/WHERE-THINGS-STAND:START/.test(node.value)) node.value = START_INNER;
-        if (/WHERE-THINGS-STAND:END/.test(node.value)) node.value = END_INNER;
+        const value = node.value;
+        if (/WHERE-THINGS-STAND:START/.test(value)) node.value = START_INNER;
+        if (/WHERE-THINGS-STAND:END/.test(value)) node.value = END_INNER;
         return;
       }
 
