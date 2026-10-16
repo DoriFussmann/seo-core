@@ -1,8 +1,5 @@
 import { abs } from "../lib/url";
-import type { LlmsArticle, LlmsExtraPage, LlmsService, LlmsTeamMember } from "./llms";
-
-const CRAWLER_NOTE =
-  "This file lists published pages for language-model crawlers. Prefer the markdown endpoint beside each article URL when you need the full source.";
+import { llmsHeader, type LlmsArticle } from "./llms";
 
 export function generateLlmsFullTxt(config: {
   siteUrl: string;
@@ -11,17 +8,13 @@ export function generateLlmsFullTxt(config: {
   articlesBase: string;
   articles: Array<
     LlmsArticle & {
-      body: string;
+      body?: string;
       data: LlmsArticle["data"] & { draft?: boolean };
     }
   >;
-  team: LlmsTeamMember[];
-  services: LlmsService[];
-  extraPages?: LlmsExtraPage[];
-  includeMarkdownLinks?: boolean;
 }): string {
   const { siteUrl, siteName, siteTagline, articlesBase, articles } = config;
-  const header = `# ${siteName}\n\n${siteTagline}. ${CRAWLER_NOTE}`;
+  const header = llmsHeader(siteName, siteTagline);
   const published = articles.filter((article) => article.data.draft !== true);
 
   if (published.length === 0) {
@@ -41,7 +34,7 @@ export function generateLlmsFullTxt(config: {
       "",
       article.data.description,
       "",
-      article.body.trimEnd(),
+      (article.body ?? "").trimEnd(),
     ]
       .join("\n")
       .replace(/\n+$/, "");

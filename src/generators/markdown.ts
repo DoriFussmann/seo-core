@@ -1,9 +1,10 @@
+import { authorUrl as profileUrl, type AuthorPath } from "../lib/jsonld";
 import { abs } from "../lib/url";
 
 export function generateArticleMarkdown(config: {
   article: {
     id: string;
-    body: string;
+    body?: string;
     data: {
       title: string;
       description: string;
@@ -16,12 +17,14 @@ export function generateArticleMarkdown(config: {
   author: { name: string; id: string };
   siteUrl: string;
   articlesBase: string;
+  /** Author profile path. Default "/team/<slug>/". */
+  authorPath?: AuthorPath;
 }): string {
-  const { article, author, siteUrl, articlesBase } = config;
+  const { article, author, siteUrl, articlesBase, authorPath } = config;
   const data = article.data;
   const authorName = author.name;
   const canonical = abs(`/${articlesBase}/${article.id}/`, siteUrl);
-  const authorUrl = abs(`/team/${author.id}/`, siteUrl);
+  const authorUrl = profileUrl(author.id, siteUrl, authorPath);
 
   const lines: string[] = [
     `# ${data.title}`,

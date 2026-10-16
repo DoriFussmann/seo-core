@@ -1,7 +1,19 @@
 ---
-import { getImage } from "astro:assets";
+/**
+ * Article page shell. Owns every SEO concern of an article: the JSON-LD
+ * @graph, meta props handed to the site's Layout, the markdown alternate, the
+ * slug guard and the body H1 guard.
+ *
+ * Presentation is overridable through named slots, so a site keeps its own
+ * design while seo-core stays the source of truth:
+ *   - "header": replaces breadcrumbs + hero image + <h1> + byline. A replacement
+ *     must render exactly one <h1> with `article.data.h1` (the audit enforces it).
+ *   - "toc":    replaces the table of contents.
+ *   - "footer": replaces FAQ, related links, sources and author bio.
+ * Pass `defaultStyles={false}` when the site styles the article column itself.
+ */
+import { getImage, Image } from "astro:assets";
 import { render, type CollectionEntry } from "astro:content";
-import { Image } from "astro:assets";
 import Breadcrumbs from "../components/Breadcrumbs.astro";
 import TableOfContents from "../components/TableOfContents.astro";
 import FaqBlock from "../components/FaqBlock.astro";
@@ -11,7 +23,17 @@ import AuthorBio from "../components/AuthorBio.astro";
 import ArticleBody from "../components/ArticleBody.astro";
 import { formatDate } from "../lib/formatDate";
 import { abs } from "../lib/url";
-import { breadcrumbNode, faqPageNode, orgNode, personNode, websiteNode } from "../lib/jsonld";
+import {
+  authorUrl,
+  breadcrumbNode,
+  faqPageNode,
+  orgId,
+  orgNode,
+  personNode,
+  websiteId,
+  websiteNode,
+  type AuthorPath,
+} from "../lib/jsonld";
 
 interface Props {
   article: CollectionEntry<"articles">;
@@ -20,24 +42,56 @@ interface Props {
   siteUrl: string;
   siteName: string;
   articlesBase: string;
+  /** Organization logo path or URL (raster, at least 112×112px). */
+  logo: string;
   sameAs?: string[];
+  /** Author profile path. Default "/team/<slug>/". */
+  authorPath?: AuthorPath;
+  /** Open Graph image size. Default 1200×675. */
+  ogImageSize?: { width: number; height: number };
+  /** Class on the <article> element. Default "article-column". */
+  articleClass?: string;
+  /** Class on the body wrapper. Default "prose-article". */
+  bodyClass?: string;
+  /** seo-core's column width and padding. Default true. */
+  defaultStyles?: boolean;
 }
 
-const { article, author, Layout, siteUrl, siteName, articlesBase, sameAs = [] } = Astro.props;
-const { Content, headings } = await render(article);
+const {
+  article,
+  author,
+  Layout,
+  siteUrl,
+  siteName,
+  articlesBase,
+  logo,
+  sameAs = [],
+  authorPath,
+  ogImageSize = { width: 1200, height: 675 },
+  articleClass = "article-column",
+  bodyClass = "prose-article",
+  defaultStyles = true,
+} = Astro.props;
+
 const data = article.data;
 const slug = article.id;
+if (data.slug && data.slug !== slug) {
+  throw new Error(`Article slug "${data.slug}" does not match its filename "${slug}.md"`);
+}
+
+const { Content, headings } = await render(article);
 // Resolved by articleSchema; the fallback covers sites still on a raw schema.
 const heading = data.h1 || data.title;
 const canonicalPath = `/${articlesBase}/${slug}/`;
 const pageUrl = abs(canonicalPath, siteUrl);
 const dateModified = data.updatedDate || data.date;
-const showUpdated =
-  Boolean(data.updatedDate) && data.updatedDate! > data.date;
-const site = { siteUrl, siteName, sameAs };
+const showUpdated = Boolean(data.updatedDate) && data.updatedDate! > data.date;
+const language = data.locale.replace("_", "-");
+const site = { siteUrl, siteName, logo, sameAs };
+const profileUrl = authorUrl(author.id, siteUrl, authorPath);
+const profileHref = profileUrl.slice(new URL(profileUrl).origin.length);
 
-const imageOpts = { src: data.image, width: 1200, height: 675 };
-const og = await getImage(imageOpts);
+const og = await getImage({ src: data.image, width: ogImageSize.width, height: ogImageSize.height });
 const ogAbs = abs(og.src, siteUrl);
 const authorPhoto = await getImage({ src: author.data.photo, width: 96, height: 96 });
 
@@ -56,6 +110,7 @@ const person = personNode({
   sameAs: author.data.sameAs,
   knowsAbout: author.data.knowsAbout,
   siteUrl,
+  authorPath,
 });
 
 const about = [
@@ -71,12 +126,13 @@ const articleNode: Record<string, unknown> = {
   image: [ogAbs],
   datePublished: data.date,
   dateModified,
+  inLanguage: language,
   author: { "@id": person["@id"] },
-  publisher: { "@id": `${siteUrl}#org` },
+  publisher: { "@id": orgId(siteUrl) },
   mainEntityOfPage: { "@id": pageUrl },
-  isPartOf: { "@id": `${siteUrl}#website` },
+  isPartOf: { "@id": websiteId(siteUrl) },
   keywords: data.tags.join(", "),
-  wordCount: (article.body ?? "").split(/\s+/).length,
+  wordCount: (article.body ?? "").split(/\s+/).filter(Boolean).length,
   about,
 };
 if (data.pillarKeyword) articleNode.articleSection = data.pillarKeyword;
@@ -87,8 +143,9 @@ const webPageNode = {
   "@id": pageUrl,
   url: pageUrl,
   name: data.title,
+  inLanguage: language,
   dateModified,
-  isPartOf: { "@id": `${siteUrl}#website` },
+  isPartOf: { "@id": websiteId(siteUrl) },
   breadcrumb: { "@id": breadcrumb["@id"] },
 };
 
@@ -117,48 +174,54 @@ const jsonLd = { "@context": "https://schema.org", "@graph": graph };
     section: data.pillarKeyword,
   }}
 >
-  <article class="article-column">
-    <Breadcrumbs crumbs={crumbs} />
-    <div class="media-frame mb-6">
-      <Image
-        src={data.image}
-        width={1200}
-        height={675}
-        alt={data.imageAlt}
-        loading="eager"
-        fetchpriority="high"
-      />
-    </div>
-    <header class="mb-8 flex flex-col gap-3">
-      <h1 class="h1">{heading}</h1>
-      <p class="muted">
-        By <a href={`/team/${author.id}/`}>{author.data.name}</a>
-        · {formatDate(data.date)}
-        {showUpdated && (
-          <> · Updated on {formatDate(data.updatedDate!)}</>
-        )}
-      </p>
-    </header>
-    <TableOfContents headings={headings} />
-    <div class="prose-article">
+  <article class:list={[articleClass, { "seo-core-article": defaultStyles }]}>
+    <slot name="header">
+      <Breadcrumbs crumbs={crumbs} />
+      <div class="media-frame mb-6">
+        <Image
+          src={data.image}
+          width={1200}
+          height={675}
+          alt={data.imageAlt}
+          loading="eager"
+          fetchpriority="high"
+        />
+      </div>
+      <header class="mb-8 flex flex-col gap-3">
+        <h1 class="h1">{heading}</h1>
+        <p class="muted">
+          By <a href={profileHref}>{author.data.name}</a>
+          · <time datetime={data.date}>{formatDate(data.date)}</time>
+          {showUpdated && (
+            <> · Updated on <time datetime={data.updatedDate}>{formatDate(data.updatedDate!)}</time></>
+          )}
+        </p>
+      </header>
+    </slot>
+    <slot name="toc">
+      <TableOfContents headings={headings} />
+    </slot>
+    <div class={bodyClass} data-article-body>
       <ArticleBody title={data.title} h1={heading}><Content /></ArticleBody>
     </div>
-    <FaqBlock faqs={data.faqs} />
-    <RelatedLinks links={data.internalLinks} articlesBase={articlesBase} />
-    <Sources sources={data.externalLinks} />
-    <AuthorBio
-      name={author.data.name}
-      role={author.data.role}
-      bio={author.data.bio}
-      slug={author.id}
-      photoSrc={authorPhoto.src}
-      photoAlt={`${author.data.name} headshot`}
-    />
+    <slot name="footer">
+      <FaqBlock faqs={data.faqs} />
+      <RelatedLinks links={data.internalLinks} articlesBase={articlesBase} />
+      <Sources sources={data.externalLinks} />
+      <AuthorBio
+        name={author.data.name}
+        role={author.data.role}
+        bio={author.data.bio}
+        href={profileHref}
+        photoSrc={authorPhoto.src}
+        photoAlt={`${author.data.name} headshot`}
+      />
+    </slot>
   </article>
 </Layout>
 
 <style>
-  .article-column {
+  .seo-core-article {
     box-sizing: border-box;
     width: 100%;
     max-width: var(--article-max-width, 90rem);
