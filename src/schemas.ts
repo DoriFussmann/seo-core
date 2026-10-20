@@ -32,7 +32,7 @@ export function articleBaseSchema(image: ImageFn) {
     robots: z
       .string()
       .default("index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1"),
-    schemaType: z.enum(["Article", "BlogPosting", "NewsArticle"]).default("Article"),
+    schemaType: z.enum(["Article", "BlogPosting", "NewsArticle"]).default("BlogPosting"),
     locale: z.string().default("en_US"),
     twitterCard: z.enum(["summary", "summary_large_image"]).default("summary_large_image"),
     pillarKeyword: z.string().optional(),

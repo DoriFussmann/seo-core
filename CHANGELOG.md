@@ -1,5 +1,46 @@
 # Changelog
 
+## 1.1.0 — 2026-10-20
+
+Additive. Sites adopt it with the version bump alone (TNV "Core Version"); no
+site code changes, no new dependencies.
+
+### Added
+- Page structured data, completed after every build by the existing
+  `seoSitemap()` integration (`enrichPageSchema`). On each indexable page that
+  already has JSON-LD it adds only what is missing:
+  - a page node (`WebPage`; `AboutPage` for `/about/`, `ContactPage` for
+    `/contact/`, `CollectionPage` for `/articles/`) with name, description,
+    language, `isPartOf` the WebSite and its breadcrumb. The About page points
+    `mainEntity` at its Person; the homepage points `about` at the Organization;
+  - a `BreadcrumbList` on every page except the homepage, named from page titles;
+  - Organization `description` (homepage meta description) and `alternateName`
+    (the domain, e.g. "heyrupert") when the site does not set them.
+  Option `pageSchema` on `seoSitemap()`: `{ pageTypes, exclude, organization }`,
+  or `false` to turn it off.
+- `ArticleLayout` prop `timeZone` (IANA name, default `America/Los_Angeles`).
+- `zonedDateTime()`, `stripContentMarkers()`, `enrichPageSchema()`,
+  `DEFAULT_PAGE_TYPES`, `DEFAULT_TIME_ZONE`, `SEO_CORE_VERSION`,
+  `resetContentCacheOnUpgrade()`.
+
+### Changed
+- Article `datePublished` / `dateModified` (JSON-LD) and
+  `article:published_time` / `article:modified_time` (meta) are full ISO 8601
+  date-times at local midnight with the zone's offset
+  (`2026-08-03T00:00:00-07:00`), which clears Google's "invalid datetime" and
+  "missing timezone" warnings. The sitemap `lastmod` follows. Visible dates and
+  `<time datetime>` are unchanged.
+- `schemaType` defaults to `BlogPosting` (was `Article`). Articles that set it
+  explicitly keep their value.
+- The markdown alternate (`index.md`) and `llms-full.txt` no longer contain TNV
+  section markers (`<!-- CMS-INTERNAL:START -->`, `WHERE-THINGS-STAND`, ...).
+  The HTML keeps them for TNV.
+
+### Fixed
+- After a seo-core version change, `seoSitemap()` clears Astro's content cache
+  once, so entries cached by a previous build (locally or in the host's build
+  cache) are re-parsed with the current schema defaults.
+
 ## 1.0.0 — 2026-10-16
 
 First stable contract. Breaking: every consumer migrates once (see "Migrating from 0.9.x").

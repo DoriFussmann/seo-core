@@ -1,20 +1,29 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deflateSync } from "node:zlib";
+import { z } from "zod";
 import {
   abs,
+  articleBaseSchema,
   authorUrl,
   collectSitemapEntries,
+  enrichPageSchema,
+  generateArticleMarkdown,
+  generateLlmsFullTxt,
   generateLlmsTxt,
   generateRobotsTxt,
   imageSize,
   llmsHeader,
   personNode,
   renderSitemapXml,
+  resetContentCacheOnUpgrade,
   runAudit,
+  SEO_CORE_VERSION,
+  stripContentMarkers,
+  zonedDateTime,
 } from "../src/index";
 
 const SITE = "https://site.test";
@@ -221,5 +230,148 @@ test("audit checks frontmatter slug against the filename", () => {
     assert.doesNotMatch(warnings, /right\.md/);
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("zonedDateTime: local midnight with the offset of that date", () => {
+  assert.equal(zonedDateTime("2026-08-03"), "2026-08-03T00:00:00-07:00");
+  assert.equal(zonedDateTime("2026-01-15"), "2026-01-15T00:00:00-08:00");
+  // DST changes happen at 2am: midnight is still on the old offset.
+  assert.equal(zonedDateTime("2026-03-08"), "2026-03-08T00:00:00-08:00");
+  assert.equal(zonedDateTime("2026-11-01"), "2026-11-01T00:00:00-07:00");
+  assert.equal(zonedDateTime("2026-08-03", "America/New_York"), "2026-08-03T00:00:00-04:00");
+  assert.equal(zonedDateTime("2026-08-03", "UTC"), "2026-08-03T00:00:00+00:00");
+  assert.equal(zonedDateTime("2026-08-03", "Asia/Kolkata"), "2026-08-03T00:00:00+05:30");
+  assert.equal(zonedDateTime("2026-08-03T09:00:00Z"), "2026-08-03T09:00:00Z");
+  assert.throws(() => zonedDateTime("2026-08-03", "Not/AZone"));
+  assert.throws(() => zonedDateTime("August 3"));
+});
+
+test("articles default to BlogPosting", () => {
+  const schema = articleBaseSchema(() => z.string());
+  const data = schema.parse({
+    title: "T".repeat(57),
+    description: "D".repeat(150),
+    date: "2026-08-03",
+    author: "jane",
+    tags: ["a", "b", "c", "d"],
+    image: "hero.webp",
+    imageAlt: "A hero image",
+  });
+  assert.equal(data.schemaType, "BlogPosting");
+});
+
+test("markdown and llms-full drop TNV section markers", () => {
+  const body = "Intro.\n\n<!-- CMS-INTERNAL:START -->\nSee [x](/articles/x/).\n<!-- CMS-INTERNAL:END -->\n\n<!-- WHERE-THINGS-STAND:START -->Summary.<!-- WHERE-THINGS-STAND:END -->\n";
+  assert.equal(stripContentMarkers(body), "Intro.\n\nSee [x](/articles/x/).\n\nSummary.\n");
+  assert.equal(stripContentMarkers("<!-- a normal comment -->"), "<!-- a normal comment -->");
+  const article = { id: "a", body, data: { title: "A", description: "Desc", date: "2026-08-03" } };
+  const md = generateArticleMarkdown({ article, author: { name: "Jane", id: "jane" }, siteUrl: SITE, articlesBase: "articles" });
+  assert.doesNotMatch(md, /CMS-INTERNAL|WHERE-THINGS-STAND/);
+  assert.match(md, /See \[x\]\(\/articles\/x\/\)\./);
+  const full = generateLlmsFullTxt({ siteUrl: SITE, siteName: "S", siteTagline: "T", articlesBase: "articles", articles: [article] });
+  assert.doesNotMatch(full, /CMS-INTERNAL|WHERE-THINGS-STAND/);
+  assert.doesNotMatch(full, /\n{3,}/);
+});
+
+test("page schema: adds page node, breadcrumbs and Organization fields only where missing", () => {
+  const dist = mkdtempSync(join(tmpdir(), "seo-core-pages-"));
+  const site = "https://www.brandname.test";
+  const org = { "@type": "Organization", "@id": `${site}#org`, name: "Brand", logo: `${site}/logo.png` };
+  const website = { "@type": "WebSite", "@id": `${site}#website`, name: "Brand" };
+  const doc = (...extra: object[]) => ({ "@context": "https://schema.org", "@graph": [org, website, ...extra] });
+  const html = (path: string, title: string, jsonLd?: object, robots?: string) =>
+    `<!doctype html><html lang="en-US"><head><title>${title}</title>
+<meta name="description" content="Description of ${path}">
+${robots ? `<meta name="robots" content="${robots}">` : ""}
+<link rel="canonical" href="${site}${path}">
+${jsonLd ? `<script type="application/ld+json">${JSON.stringify(jsonLd)}</script>` : ""}
+</head><body><h1>x</h1></body></html>`;
+  const read = (rel: string) => {
+    const match = /<script type="application\/ld\+json">([\s\S]*?)<\/script>/.exec(readFileSync(join(dist, rel), "utf8"));
+    return match ? (JSON.parse(match[1])["@graph"] as Record<string, any>[]) : null;
+  };
+  const byType = (graph: Record<string, any>[], type: string) => graph.filter((n) => n["@type"] === type);
+  try {
+    const person = { "@type": "Person", "@id": `${site}/about/#jane` };
+    const articleGraph = doc(
+      { "@type": "BreadcrumbList", "@id": `${site}/articles/a/#breadcrumb` },
+      { "@type": "WebPage", "@id": `${site}/articles/a/` },
+      { "@type": "BlogPosting" },
+    );
+    writePage(dist, "index.html", html("/", "Home title | Brand", doc({ "@type": "FAQPage", mainEntity: [] })));
+    writePage(dist, "about/index.html", html("/about/", "Jane Doe | Founder of Brand", doc(person)));
+    writePage(dist, "articles/index.html", html("/articles/", "Articles — Brand", doc()));
+    writePage(dist, "articles/a/index.html", html("/articles/a/", "Article A", articleGraph));
+    writePage(dist, "book-call/index.html", html("/book-call/", "Book a Call | Brand", doc()));
+    writePage(dist, "privacy/index.html", html("/privacy/", "Privacy", doc(), "noindex, follow"));
+    writePage(dist, "plain/index.html", html("/plain/", "Plain"));
+
+    const changed = enrichPageSchema(dist, site, { pageTypes: { "/book-call/": "ContactPage" } });
+    assert.equal(changed, 5);
+
+    const home = read("index.html")!;
+    const homeOrg = byType(home, "Organization")[0];
+    assert.equal(homeOrg.description, "Description of /");
+    assert.equal(homeOrg.alternateName, "brandname");
+    assert.equal(byType(home, "BreadcrumbList").length, 0);
+    const homePage = byType(home, "WebPage")[0];
+    assert.equal(homePage["@id"], `${site}/`);
+    assert.equal(homePage.name, "Home title");
+    assert.equal(homePage.inLanguage, "en-US");
+    assert.deepEqual(homePage.isPartOf, { "@id": `${site}#website` });
+    assert.deepEqual(homePage.about, { "@id": `${site}#org` });
+
+    const about = read("about/index.html")!;
+    const aboutPage = byType(about, "AboutPage")[0];
+    assert.deepEqual(aboutPage.mainEntity, { "@id": `${site}/about/#jane` });
+    const aboutCrumbs = byType(about, "BreadcrumbList")[0];
+    assert.deepEqual(aboutPage.breadcrumb, { "@id": aboutCrumbs["@id"] });
+    assert.deepEqual(
+      aboutCrumbs.itemListElement.map((c: any) => [c.name, c.item]),
+      [["Home", `${site}/`], ["Jane Doe", `${site}/about/`]],
+    );
+
+    assert.equal(byType(read("articles/index.html")!, "CollectionPage")[0].name, "Articles");
+    assert.equal(byType(read("book-call/index.html")!, "ContactPage")[0].name, "Book a Call");
+
+    // Article: its own page node and breadcrumb are kept; only Organization fields are added.
+    const article = read("articles/a/index.html")!;
+    assert.equal(byType(article, "WebPage").length, 1);
+    assert.equal(byType(article, "BreadcrumbList").length, 1);
+    assert.equal(byType(article, "Organization")[0].alternateName, "brandname");
+
+    // Not indexable, or no JSON-LD: untouched.
+    assert.equal(byType(read("privacy/index.html")!, "WebPage").length, 0);
+    assert.equal(read("plain/index.html"), null);
+
+    // A second run finds nothing to add.
+    assert.equal(enrichPageSchema(dist, site, { pageTypes: { "/book-call/": "ContactPage" } }), 0);
+
+    // Values a site sets itself win; organization: false leaves Organization alone.
+    writePage(dist, "index.html", html("/", "Home", doc({ "@type": "WebPage", "@id": `${site}/` })));
+    enrichPageSchema(dist, site, { organization: false });
+    assert.equal(byType(read("index.html")!, "Organization")[0].alternateName, undefined);
+  } finally {
+    rmSync(dist, { recursive: true, force: true });
+  }
+});
+
+test("content cache: cleared once per seo-core version", () => {
+  const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  assert.equal(SEO_CORE_VERSION, pkg.version);
+  const cacheDir = mkdtempSync(join(tmpdir(), "seo-core-cache-"));
+  try {
+    const store = join(cacheDir, "data-store.json");
+    writeFileSync(store, "{}");
+    assert.equal(resetContentCacheOnUpgrade(cacheDir), true);
+    assert.equal(existsSync(store), false);
+    writeFileSync(store, "{}");
+    assert.equal(resetContentCacheOnUpgrade(cacheDir), false);
+    assert.equal(existsSync(store), true);
+    writeFileSync(join(cacheDir, "seo-core-version"), "1.0.0\n");
+    assert.equal(resetContentCacheOnUpgrade(cacheDir), true);
+  } finally {
+    rmSync(cacheDir, { recursive: true, force: true });
   }
 });

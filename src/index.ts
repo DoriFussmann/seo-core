@@ -1,5 +1,8 @@
 export { ISO_DATE, toIsoDateString } from "./lib/isoDate";
 export { formatDate } from "./lib/formatDate";
+export { zonedDateTime, DEFAULT_TIME_ZONE } from "./lib/datetime";
+export { stripContentMarkers } from "./lib/markers";
+export { resetContentCacheOnUpgrade, SEO_CORE_VERSION } from "./lib/content-cache";
 export { slugify, extractHeadings } from "./lib/headings";
 export type { Heading } from "./lib/headings";
 export { abs } from "./lib/url";
@@ -34,3 +37,5 @@ export { generateRobotsTxt, DEFAULT_AI_CRAWLERS, DEFAULT_SITEMAP_PATH } from "./
 export type { CrawlerPolicy } from "./generators/robots";
 export { seoSitemap, collectSitemapEntries, renderSitemapXml } from "./generators/sitemap";
 export type { SitemapOptions } from "./generators/sitemap";
+export { enrichPageSchema, DEFAULT_PAGE_TYPES } from "./generators/page-schema";
+export type { PageSchemaOptions } from "./generators/page-schema";

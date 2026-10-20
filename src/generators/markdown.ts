@@ -1,4 +1,5 @@
 import { authorUrl as profileUrl, type AuthorPath } from "../lib/jsonld";
+import { stripContentMarkers } from "../lib/markers";
 import { abs } from "../lib/url";
 
 export function generateArticleMarkdown(config: {
@@ -37,7 +38,7 @@ export function generateArticleMarkdown(config: {
   if (data.updatedDate && data.updatedDate > data.date) {
     lines.push(`Updated: ${data.updatedDate}`);
   }
-  lines.push(`Author: [${authorName}](${authorUrl})`, "", (article.body ?? "").trimEnd());
+  lines.push(`Author: [${authorName}](${authorUrl})`, "", stripContentMarkers(article.body ?? "").trimEnd());
 
   const faqs = data.faqs ?? [];
   if (faqs.length > 0) {

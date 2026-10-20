@@ -1,3 +1,4 @@
+import { stripContentMarkers } from "../lib/markers";
 import { abs } from "../lib/url";
 import { llmsHeader, type LlmsArticle } from "./llms";
 
@@ -34,9 +35,10 @@ export function generateLlmsFullTxt(config: {
       "",
       article.data.description,
       "",
-      (article.body ?? "").trimEnd(),
+      stripContentMarkers(article.body ?? "").trimEnd(),
     ]
       .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
       .replace(/\n+$/, "");
   });
 

@@ -21,6 +21,7 @@ import RelatedLinks from "../components/RelatedLinks.astro";
 import Sources from "../components/Sources.astro";
 import AuthorBio from "../components/AuthorBio.astro";
 import ArticleBody from "../components/ArticleBody.astro";
+import { DEFAULT_TIME_ZONE, zonedDateTime } from "../lib/datetime";
 import { formatDate } from "../lib/formatDate";
 import { abs } from "../lib/url";
 import {
@@ -47,6 +48,11 @@ interface Props {
   sameAs?: string[];
   /** Author profile path. Default "/team/<slug>/". */
   authorPath?: AuthorPath;
+  /**
+   * IANA time zone for the article timestamps in JSON-LD and article meta
+   * ("2026-08-03T00:00:00-07:00"). Default "America/Los_Angeles".
+   */
+  timeZone?: string;
   /** Open Graph image size. Default 1200×675. */
   ogImageSize?: { width: number; height: number };
   /** Class on the <article> element. Default "article-column". */
@@ -67,6 +73,7 @@ const {
   logo,
   sameAs = [],
   authorPath,
+  timeZone = DEFAULT_TIME_ZONE,
   ogImageSize = { width: 1200, height: 675 },
   articleClass = "article-column",
   bodyClass = "prose-article",
@@ -86,6 +93,8 @@ const canonicalPath = `/${articlesBase}/${slug}/`;
 const pageUrl = abs(canonicalPath, siteUrl);
 const dateModified = data.updatedDate || data.date;
 const showUpdated = Boolean(data.updatedDate) && data.updatedDate! > data.date;
+const publishedAt = zonedDateTime(data.date, timeZone);
+const modifiedAt = zonedDateTime(dateModified, timeZone);
 const language = data.locale.replace("_", "-");
 const site = { siteUrl, siteName, logo, sameAs };
 const profileUrl = authorUrl(author.id, siteUrl, authorPath);
@@ -124,8 +133,8 @@ const articleNode: Record<string, unknown> = {
   headline: data.title,
   description: data.description,
   image: [ogAbs],
-  datePublished: data.date,
-  dateModified,
+  datePublished: publishedAt,
+  dateModified: modifiedAt,
   inLanguage: language,
   author: { "@id": person["@id"] },
   publisher: { "@id": orgId(siteUrl) },
@@ -144,7 +153,7 @@ const webPageNode = {
   url: pageUrl,
   name: data.title,
   inLanguage: language,
-  dateModified,
+  dateModified: modifiedAt,
   isPartOf: { "@id": websiteId(siteUrl) },
   breadcrumb: { "@id": breadcrumb["@id"] },
 };
@@ -167,8 +176,8 @@ const jsonLd = { "@context": "https://schema.org", "@graph": graph };
   jsonLd={jsonLd}
   alternateMarkdown={`${canonicalPath}index.md`}
   articleMeta={{
-    publishedTime: data.date,
-    modifiedTime: dateModified,
+    publishedTime: publishedAt,
+    modifiedTime: modifiedAt,
     author: author.data.name,
     tags: data.tags,
     section: data.pillarKeyword,
