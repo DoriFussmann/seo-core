@@ -5,6 +5,7 @@ import { DEFAULT_SITEMAP_PATH } from "./generators/robots";
 import { distRelative, pagePathname, walkHtml } from "./lib/dist";
 import { H1_MIN_LENGTH, normalizeHeading } from "./lib/h1";
 import { imageSize } from "./lib/image-size";
+import { LEGAL_PAGE_PATHS, LENGTH_RULES, describeLengthRule, fitsLengthRule } from "./lib/length-rules";
 
 /** "warn" reports without failing the build; "error" fails it; "off" skips the check. */
 export type AuditLevel = "off" | "warn" | "error";
@@ -14,6 +15,18 @@ export type PillarHubMatcher = string[] | ((pathname: string) => boolean);
 
 /** Google's minimum logo size for Organization rich results. */
 export const MIN_LOGO_PX = 112;
+
+/**
+ * Text the template and the content prompts leave for a human to replace.
+ * The `placeholders` rule flags any page that still shows one after activation.
+ */
+export const PLACEHOLDER_MARKERS: readonly string[] = [
+  "[PLACEHOLDER",
+  "[GAP:",
+  "Image placeholder",
+  "Placeholder name",
+  "Role to be confirmed",
+];
 
 export interface AuditConfig {
   siteUrl: string;
@@ -64,6 +77,18 @@ export interface AuditConfig {
   unlinkedAttributions?: AuditLevel;
   /** Frontmatter `slug` differs from the article's filename. Default "error". */
   slugMatchesFilename?: AuditLevel;
+  /**
+   * Non-article page <title> outside LENGTH_RULES.pageTitle (legal pages:
+   * legalPageTitle) or meta description outside pageDescription. Skips 404 and
+   * paginated listings; the homepage description stays an error. Default "warn".
+   */
+  pageMetaLengths?: AuditLevel;
+  /**
+   * After activation (SITE_URL is not https://example.com), a page still shows
+   * a PLACEHOLDER_MARKERS string, or its title or meta description starts with
+   * "Placeholder". Default "warn".
+   */
+  placeholders?: AuditLevel;
 }
 
 function normalizeAuditPath(path: string): string {
@@ -183,6 +208,9 @@ export function runAudit(config: AuditConfig): string[] {
   const minExternalLinks = config.minExternalLinks ?? 3;
   const unlinkedAttributions = config.unlinkedAttributions ?? "warn";
   const slugMatchesFilename = config.slugMatchesFilename ?? "error";
+  const pageMetaLengths = config.pageMetaLengths ?? "warn";
+  const placeholders = config.placeholders ?? "warn";
+  const activated = siteUrl !== "https://example.com";
   const errors: string[] = [];
   const warnings: string[] = [];
 
@@ -271,12 +299,13 @@ export function runAudit(config: AuditConfig): string[] {
       const $ = cheerio.load(html);
       const is404 = rel.includes("404");
       const isHub = matchesPillarHub(rel, config.pillarHubs);
+      const isPaginated = /\/\d+\/index\.html$/.test(rel);
       const isArticle =
         !isHub &&
         rel.startsWith(`${articlesBase}/`) &&
         rel.endsWith("index.html") &&
         rel !== `${articlesBase}/index.html` &&
-        !/\/\d+\/index\.html$/.test(rel);
+        !isPaginated;
       const isHome = rel === "index.html";
 
       const h1 = $("h1");
@@ -284,8 +313,15 @@ export function runAudit(config: AuditConfig): string[] {
 
       const title = $("title").first().text().trim();
       if (!title) fail(`${rel}: missing <title>`);
-      if (isArticle && (title.length < 55 || title.length > 60)) {
-        fail(`${rel}: article title length ${title.length} (want 55–60)`);
+      if (isArticle && !fitsLengthRule(title, LENGTH_RULES.articleTitle)) {
+        fail(`${rel}: article title length ${title.length} (want ${describeLengthRule(LENGTH_RULES.articleTitle)})`);
+      }
+      const checkPageMeta = !isArticle && !is404 && !isPaginated;
+      if (checkPageMeta && title) {
+        const rule = LEGAL_PAGE_PATHS.includes(rel) ? LENGTH_RULES.legalPageTitle : LENGTH_RULES.pageTitle;
+        if (!fitsLengthRule(title, rule)) {
+          report(pageMetaLengths, `${rel}: page title length ${title.length} (want ${describeLengthRule(rule)}) — "${title}"`);
+        }
       }
       if (title && !is404) track(pagesByTitle, title, rel);
       if (isArticle && h1.length === 1) {
@@ -301,8 +337,24 @@ export function runAudit(config: AuditConfig): string[] {
 
       const desc = $('meta[name="description"]').attr("content") || "";
       if (!desc) fail(`${rel}: missing meta description`);
-      if ((isArticle || isHome) && (desc.length < 140 || desc.length > 160)) {
-        fail(`${rel}: meta description length ${desc.length} (want 140–160)`);
+      const descRule = isArticle ? LENGTH_RULES.articleDescription : LENGTH_RULES.pageDescription;
+      if ((isArticle || isHome) && !fitsLengthRule(desc, descRule)) {
+        fail(`${rel}: meta description length ${desc.length} (want ${describeLengthRule(descRule)})`);
+      } else if (checkPageMeta && desc && !fitsLengthRule(desc, LENGTH_RULES.pageDescription)) {
+        report(
+          pageMetaLengths,
+          `${rel}: page meta description length ${desc.length} (want ${describeLengthRule(LENGTH_RULES.pageDescription)})`,
+        );
+      }
+
+      if (activated && !is404) {
+        const visible = $("body").text();
+        const found = PLACEHOLDER_MARKERS.filter((marker) => visible.includes(marker) || title.includes(marker) || desc.includes(marker));
+        if (/^Placeholder\b/.test(title)) found.push("title starts with Placeholder");
+        if (/^Placeholder\b/.test(desc)) found.push("meta description starts with Placeholder");
+        if (found.length) {
+          report(placeholders, `${rel}: template placeholder text still live — ${found.map((m) => `"${m}"`).join(", ")}`);
+        }
       }
 
       const canonical = $('link[rel="canonical"]').attr("href") || "";
@@ -490,7 +542,7 @@ export function runAudit(config: AuditConfig): string[] {
       }
     }
 
-    if (siteUrl !== "https://example.com") {
+    if (activated) {
       if (haystack.includes("example.com")) fail("activated site still contains example.com");
       if (haystack.includes("Site Name")) fail("activated site still contains Site Name");
       if (haystack.includes("TEMPLATE:")) fail("activated site still contains TEMPLATE:");

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { join } from "node:path";
 
 /** This package's version. Kept equal to package.json (a test enforces it). */
-export const SEO_CORE_VERSION = "1.1.0";
+export const SEO_CORE_VERSION = "1.2.0";
 
 const MARKER = "seo-core-version";
 const DATA_STORE = "data-store.json";

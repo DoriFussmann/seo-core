@@ -8,6 +8,9 @@ import { z } from "zod";
 import {
   abs,
   articleBaseSchema,
+  describeLengthRule,
+  fitsLengthRule,
+  LENGTH_RULES,
   authorUrl,
   collectSitemapEntries,
   enrichPageSchema,
@@ -22,6 +25,7 @@ import {
   resetContentCacheOnUpgrade,
   runAudit,
   SEO_CORE_VERSION,
+  serviceSchema,
   stripContentMarkers,
   zonedDateTime,
 } from "../src/index";
@@ -373,5 +377,105 @@ test("content cache: cleared once per seo-core version", () => {
     assert.equal(resetContentCacheOnUpgrade(cacheDir), true);
   } finally {
     rmSync(cacheDir, { recursive: true, force: true });
+  }
+});
+
+test("LENGTH_RULES drive the article and service schemas", () => {
+  assert.deepEqual(LENGTH_RULES.articleTitle, { min: 55, max: 60 });
+  assert.deepEqual(LENGTH_RULES.serviceDescription, { min: 140, max: 160 });
+  assert.equal(describeLengthRule(LENGTH_RULES.pageTitle), "50–60");
+  assert.equal(describeLengthRule(LENGTH_RULES.legalPageTitle), "max 60");
+  assert.equal(fitsLengthRule("x".repeat(60), LENGTH_RULES.legalPageTitle), true);
+  assert.equal(fitsLengthRule("x".repeat(61), LENGTH_RULES.legalPageTitle), false);
+  const service = (n: number) => serviceSchema.safeParse({ title: "S", description: "d".repeat(n) }).success;
+  assert.equal(service(133), false);
+  assert.equal(service(140), true);
+  assert.equal(service(160), true);
+  assert.equal(service(161), false);
+});
+
+function metaPage(path: string, title: string, desc: string, body = "<h1>Heading for the page</h1>") {
+  return `<!doctype html><html><head><title>${title}</title>
+<meta name="description" content="${desc}">
+<link rel="canonical" href="${SITE}${path}">
+</head><body><main>${body}</main></body></html>`;
+}
+
+function auditWarnings(dist: string, extra: Record<string, unknown> = {}): string {
+  writeFileSync(join(dist, "sitemap.xml"), renderSitemapXml([]));
+  writeFileSync(join(dist, "robots.txt"), generateRobotsTxt({ siteUrl: SITE }));
+  return captureWarnings(() =>
+    runAudit({ siteUrl: SITE, siteName: "S", articlesBase: "articles", distDir: dist, organizationLogo: "off", ...extra }),
+  ).join("\n");
+}
+
+test("audit warns on page titles and descriptions outside LENGTH_RULES", () => {
+  const dist = mkdtempSync(join(tmpdir(), "seo-core-pagemeta-"));
+  try {
+    const okTitle = "T".repeat(55);
+    const okDesc = "d".repeat(150);
+    writePage(dist, "index.html", metaPage("/", "Home title that is too short", okDesc));
+    writePage(dist, "about/index.html", metaPage("/about/", okTitle, "d".repeat(120)));
+    writePage(dist, "services/index.html", metaPage("/services/", okTitle, okDesc));
+    writePage(dist, "privacy/index.html", metaPage("/privacy/", "Privacy Policy | S", okDesc));
+    writePage(dist, "terms/index.html", metaPage("/terms/", "T".repeat(61), okDesc));
+    writePage(dist, "articles/2/index.html", metaPage("/articles/2/", "Page 2", "short"));
+    writePage(dist, "404.html", metaPage("/404/", "Not found", "short"));
+    const warnings = auditWarnings(dist);
+    assert.match(warnings, /index\.html: page title length 28 \(want 50–60\)/);
+    assert.match(warnings, /about\/index\.html: page meta description length 120 \(want 140–160\)/);
+    assert.doesNotMatch(warnings, /services\/index\.html: page/);
+    assert.doesNotMatch(warnings, /privacy\/index\.html: page title/);
+    assert.match(warnings, /terms\/index\.html: page title length 61 \(want max 60\)/);
+    assert.doesNotMatch(warnings, /articles\/2\/index\.html: page/);
+    assert.doesNotMatch(warnings, /404\.html: page/);
+
+    const off = auditWarnings(dist, { pageMetaLengths: "off" });
+    assert.doesNotMatch(off, /page title length|page meta description length/);
+  } finally {
+    rmSync(dist, { recursive: true, force: true });
+  }
+});
+
+test("audit flags placeholder text only after activation", () => {
+  const dist = mkdtempSync(join(tmpdir(), "seo-core-placeholders-"));
+  try {
+    const desc = "d".repeat(150);
+    writePage(
+      dist,
+      "testimonials/index.html",
+      metaPage("/testimonials/", "T".repeat(55), desc, `<h1>Heading for the page</h1><p>[PLACEHOLDER: real client testimonial]</p><p>Role to be confirmed</p>`),
+    );
+    writePage(
+      dist,
+      "about/index.html",
+      metaPage("/about/", "T".repeat(55), `Placeholder ${"d".repeat(140)}`, `<h1>Heading for the page</h1><div class="placeholder-frame"><p>Image placeholder</p></div>`),
+    );
+    writePage(dist, "services/index.html", metaPage("/services/", "T".repeat(55), desc));
+    const warnings = auditWarnings(dist);
+    assert.match(warnings, /testimonials\/index\.html: template placeholder text still live — "\[PLACEHOLDER", "Role to be confirmed"/);
+    assert.match(warnings, /about\/index\.html: template placeholder text still live — "Image placeholder", "meta description starts with Placeholder"/);
+    assert.doesNotMatch(warnings, /services\/index\.html: template placeholder/);
+
+    const templateDist = mkdtempSync(join(tmpdir(), "seo-core-placeholders-template-"));
+    let template = "";
+    try {
+      const TEMPLATE = "https://example.com";
+      writePage(
+        templateDist,
+        "testimonials/index.html",
+        `<!doctype html><html><head><title>${"T".repeat(55)}</title><meta name="description" content="${desc}"><link rel="canonical" href="${TEMPLATE}/testimonials/"></head><body><main><h1>Heading for the page</h1><p>[PLACEHOLDER: quote]</p></main></body></html>`,
+      );
+      writeFileSync(join(templateDist, "sitemap.xml"), renderSitemapXml([]));
+      writeFileSync(join(templateDist, "robots.txt"), generateRobotsTxt({ siteUrl: TEMPLATE }));
+      template = captureWarnings(() =>
+        runAudit({ siteUrl: TEMPLATE, siteName: "S", articlesBase: "articles", distDir: templateDist, organizationLogo: "off" }),
+      ).join("\n");
+    } finally {
+      rmSync(templateDist, { recursive: true, force: true });
+    }
+    assert.doesNotMatch(template, /template placeholder/);
+  } finally {
+    rmSync(dist, { recursive: true, force: true });
   }
 });

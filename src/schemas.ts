@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ISO_DATE, toIsoDateString } from "./lib/isoDate";
 import { resolveH1 } from "./lib/h1";
+import { LENGTH_RULES } from "./lib/length-rules";
 
 /** YAML Date or YYYY-MM-DD string → YYYY-MM-DD string. */
 export const isoDate = z.union([
@@ -16,10 +17,13 @@ type ImageFn = () => z.ZodTypeAny;
  */
 export function articleBaseSchema(image: ImageFn) {
   return z.object({
-    title: z.string().min(55).max(60),
+    title: z.string().min(LENGTH_RULES.articleTitle.min).max(LENGTH_RULES.articleTitle.max),
     /** On-page heading. Optional: resolved from the title when absent (see lib/h1). */
     h1: z.string().optional(),
-    description: z.string().min(140).max(160),
+    description: z
+      .string()
+      .min(LENGTH_RULES.articleDescription.min)
+      .max(LENGTH_RULES.articleDescription.max),
     date: isoDate,
     updatedDate: isoDate.optional(),
     author: z.string(),
@@ -84,7 +88,10 @@ export function teamSchema(image: ImageFn) {
 
 export const serviceSchema = z.object({
   title: z.string(),
-  description: z.string().min(140).max(160),
+  description: z
+    .string()
+    .min(LENGTH_RULES.serviceDescription.min)
+    .max(LENGTH_RULES.serviceDescription.max),
   order: z.number().default(0),
   icon: z.string().optional(),
 });

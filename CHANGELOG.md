@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.2.0 — 2026-10-24
+
+Additive. Sites adopt it with the version bump alone (TNV "Core Version"); no
+site code changes, no new dependencies. Both new audit rules default to "warn",
+so an existing site keeps building and only sees new warnings.
+
+### Added
+- `LENGTH_RULES`: one source for title and description lengths — article title
+  55–60, article and service description 140–160, page title 50–60 (legal
+  pages: max 60, see `LEGAL_PAGE_PATHS`), page meta description 140–160.
+  Helpers `describeLengthRule()` and `fitsLengthRule()`, type `LengthRule`.
+- Audit rule `pageMetaLengths` (default "warn"): a non-article page whose
+  `<title>` or meta description is outside `LENGTH_RULES`. Skips 404 and
+  paginated listings. The homepage meta description stays an error.
+- Audit rule `placeholders` (default "warn"), only once `SITE_URL` is not
+  `https://example.com`: a page that still shows `[PLACEHOLDER`, `[GAP:`,
+  `Image placeholder`, `Placeholder name` or `Role to be confirmed`, or whose
+  title or meta description starts with "Placeholder". Exported as
+  `PLACEHOLDER_MARKERS`.
+
+### Changed
+- `articleBaseSchema`, `serviceSchema` and the article audit checks read their
+  limits from `LENGTH_RULES`. The numbers are unchanged.
+
 ## 1.1.0 — 2026-10-20
 
 Additive. Sites adopt it with the version bump alone (TNV "Core Version"); no
