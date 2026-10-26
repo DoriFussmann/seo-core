@@ -1,0 +1,299 @@
+/**
+ * Placeholder manifest: a declarative list of what a site built from a
+ * template still has to replace, and how to tell whether it has been.
+ *
+ * It is plain data (no functions, no RegExp objects) so the same list can be
+ * stored as JSON and read by tools that do not run TypeScript — TNV reads
+ * `src/placeholders/blueprint.json` from GitHub at the site's pinned tag.
+ * A test keeps that JSON equal to BLUEPRINT_PLACEHOLDERS.
+ *
+ * All paths are relative to the site root (the folder whose package.json pins
+ * seo-core — `site/` in the SEO Blueprint). Globs support `*`, `**` and `?`.
+ */
+
+/** "required" blocks completion; "suggested" is shown but never blocks. */
+export type PlaceholderLevel = "required" | "suggested";
+
+interface CheckBase {
+  /** Stable key. Tools store sign-offs against it, so never rename one. */
+  id: string;
+  label: string;
+  group: string;
+  /** Default "required". */
+  level?: PlaceholderLevel;
+  /**
+   * When true, the check passing only means the template text is gone. A
+   * person still has to confirm the new content (legal pages, testimonials):
+   * the result is "review" instead of "replaced".
+   */
+  review?: boolean;
+  /** One or two sentences on how to fix it. */
+  help?: string;
+}
+
+/** Any marker string found in a matching file → placeholder. */
+export interface MarkersCheck extends CheckBase {
+  kind: "markers";
+  files: string | string[];
+  /** Case-sensitive substrings. */
+  markers: string[];
+  exclude?: string[];
+  /** Result when no file matches. Default "unknown" (the file was expected). */
+  missing?: "replaced" | "unknown";
+}
+
+/**
+ * Each pattern is a RegExp source (multiline) with one capture group. A
+ * captured value (trimmed) listed in `placeholders` → placeholder. No pattern
+ * matching at all → unknown (the setting moved or was renamed).
+ */
+export interface ValueCheck extends CheckBase {
+  kind: "value";
+  file: string;
+  patterns: string[];
+  placeholders: string[];
+}
+
+/** Any matching file exists → placeholder (template files to rename or delete). */
+export interface ExistsCheck extends CheckBase {
+  kind: "exists";
+  files: string | string[];
+}
+
+/**
+ * Files under `dirs` whose SHA-256 equals one of the template's originals →
+ * placeholder. `hashes` is a JSON file of { "<template path>": "<sha256 hex>" }.
+ * SVG line endings are normalized to LF before hashing.
+ */
+export interface OriginalsCheck extends CheckBase {
+  kind: "originals";
+  hashes: string;
+  dirs: string[];
+}
+
+/** YAML `image:` briefs with no sibling `src:` (the page shows "Image placeholder"). */
+export interface ImageBriefsCheck extends CheckBase {
+  kind: "imageBriefs";
+  files: string | string[];
+}
+
+export type PlaceholderCheck = MarkersCheck | ValueCheck | ExistsCheck | OriginalsCheck | ImageBriefsCheck;
+
+export interface PlaceholderManifest {
+  version: 1;
+  /** Which template the list describes. */
+  template: string;
+  checks: PlaceholderCheck[];
+}
+
+const PAGES = "src/content/pages/*.yaml";
+
+/** What a site made from the SEO Blueprint template has to replace before launch. */
+export const BLUEPRINT_PLACEHOLDERS: PlaceholderManifest = {
+  version: 1,
+  template: "blueprint-seo-template",
+  checks: [
+    {
+      id: "site-url",
+      label: "Site URL",
+      group: "Site config",
+      kind: "value",
+      file: "src/config/site.ts",
+      patterns: ['^export const SITE_URL\\s*=\\s*"([^"]*)"'],
+      placeholders: ["https://example.com", ""],
+      help: "Set SITE_URL in src/config/site.ts to the live domain, with https://.",
+    },
+    {
+      id: "site-name",
+      label: "Site name",
+      group: "Site config",
+      kind: "value",
+      file: "src/config/site.ts",
+      patterns: ['^export const SITE_NAME\\s*=\\s*"([^"]*)"'],
+      placeholders: ["Site Name", ""],
+      help: "Set SITE_NAME in src/config/site.ts.",
+    },
+    {
+      id: "site-tagline",
+      label: "Tagline",
+      group: "Site config",
+      kind: "value",
+      file: "src/config/site.ts",
+      patterns: ['^export const SITE_TAGLINE\\s*=\\s*"([^"]*)"'],
+      placeholders: ["Primary positioning phrase", ""],
+      help: "Set SITE_TAGLINE in src/config/site.ts. It is used in the homepage title, footer, RSS and llms.txt.",
+    },
+    {
+      id: "same-as",
+      label: "Brand profiles (sameAs)",
+      group: "Site config",
+      kind: "value",
+      file: "src/config/site.ts",
+      patterns: ["^export const SAME_AS\\b[^=]*=\\s*\\[([\\s\\S]*?)\\]"],
+      placeholders: [""],
+      help: "List the brand's official profiles (LinkedIn company page, Crunchbase, X) in SAME_AS.",
+    },
+    {
+      id: "ga4-id",
+      label: "Google Analytics ID",
+      group: "Site config",
+      level: "suggested",
+      kind: "value",
+      file: "src/config/site.ts",
+      patterns: ['^export const GA4_MEASUREMENT_ID\\s*=\\s*"([^"]*)"'],
+      placeholders: [""],
+      help: "Set GA4_MEASUREMENT_ID in src/config/site.ts, or PUBLIC_ANALYTICS_ID in Vercel (not visible to this check).",
+    },
+    {
+      id: "articles-description",
+      label: "Articles index description",
+      group: "Site config",
+      level: "suggested",
+      kind: "value",
+      file: "src/config/site.ts",
+      patterns: ['^export const ARTICLES_DESCRIPTION\\s*=\\s*"([^"]*)"'],
+      placeholders: [
+        "Browse every published article: practical guides on technical SEO, content strategy and the operating systems behind them, kept current and reviewed.",
+      ],
+      help: "Still the template's text about SEO. Rewrite ARTICLES_DESCRIPTION for this site's subject (140–160 characters).",
+    },
+    {
+      id: "team-description",
+      label: "Team index description",
+      group: "Site config",
+      level: "suggested",
+      kind: "value",
+      file: "src/config/site.ts",
+      patterns: ['^export const TEAM_DESCRIPTION\\s*=\\s*"([^"]*)"'],
+      placeholders: [
+        "Meet the people behind this site: the operators and editors who write, review and maintain every guide, and the experience each one brings to the work.",
+      ],
+      help: "Still the template's text. Rewrite TEAM_DESCRIPTION if it does not fit (140–160 characters).",
+    },
+    {
+      id: "wordmark",
+      label: "Wordmark",
+      group: "Design",
+      kind: "value",
+      file: "Design Guide.md",
+      patterns: ['"wordmarkPrimary"\\s*:\\s*"([^"]*)"', '"wordmarkAccent"\\s*:\\s*"([^"]*)"'],
+      placeholders: ["Site", "Name"],
+      help: 'The header still reads "Site Name". Generate the design guide in TNV → Design, or set brand.wordmarkPrimary / wordmarkAccent in site/Design Guide.md.',
+    },
+    {
+      id: "template-images",
+      label: "Logo, favicon, social image and demo images",
+      group: "Images",
+      kind: "originals",
+      hashes: "scripts/template-originals.json",
+      dirs: ["public", "src/assets"],
+      help: "These files are byte-for-byte the template's own. Replace logo.png (raster, at least 112×112), favicon.svg and og-default.png (1200×675), and the demo article and author images.",
+    },
+    {
+      id: "image-briefs",
+      label: "Page images",
+      group: "Images",
+      kind: "imageBriefs",
+      files: PAGES,
+      help: "Each hero slide and feature split shows a text brief until it has a src. Save the image in src/assets/ and add src: next to the brief.",
+    },
+    {
+      id: "page-copy",
+      label: "Page copy",
+      group: "Pages",
+      kind: "markers",
+      files: PAGES,
+      exclude: ["src/content/pages/privacy.yaml", "src/content/pages/terms.yaml", "src/content/pages/testimonials.yaml"],
+      markers: ["[PLACEHOLDER", "[GAP:", "Placeholder", "Site Name", "example.com", "Role to be confirmed"],
+      help: "Replace the template copy, meta titles and descriptions, and the hello@example.com address in every page YAML. Resolve every [GAP: …] line.",
+    },
+    {
+      id: "home-template-sections",
+      label: "Homepage template sections",
+      group: "Pages",
+      kind: "markers",
+      files: "src/content/pages/home.yaml",
+      markers: [
+        "What this template holds",
+        "Page templates in this seed",
+        "Section types in the library",
+        "Notes for the next edit",
+        "Section sample",
+      ],
+      missing: "replaced",
+      help: "The homepage still has sections that describe the template itself (stats, rich text, the sample page header). Rewrite them or remove them.",
+    },
+    {
+      id: "privacy",
+      label: "Privacy policy",
+      group: "Legal",
+      review: true,
+      kind: "markers",
+      files: "src/content/pages/privacy.yaml",
+      markers: ["[PLACEHOLDER", "placeholder", "Placeholder"],
+      help: "Replace with a reviewed privacy policy. Once the placeholder is gone, confirm someone reviewed it.",
+    },
+    {
+      id: "terms",
+      label: "Terms of use",
+      group: "Legal",
+      review: true,
+      kind: "markers",
+      files: "src/content/pages/terms.yaml",
+      markers: ["[PLACEHOLDER", "placeholder", "Placeholder"],
+      help: "Replace with reviewed terms. Once the placeholder is gone, confirm someone reviewed them.",
+    },
+    {
+      id: "testimonials",
+      label: "Testimonials",
+      group: "Legal",
+      review: true,
+      kind: "markers",
+      files: ["src/content/pages/testimonials.yaml", "src/content/pages/home.yaml"],
+      markers: ["[PLACEHOLDER", "Placeholder quote", "placeholder quote", "Placeholder name", "Role to be confirmed"],
+      missing: "replaced",
+      help: "Replace every quote with a real, cleared testimonial, or delete the Testimonials page and the homepage block. Confirm the quotes are real.",
+    },
+    {
+      id: "author",
+      label: "Author profile",
+      group: "Collections",
+      kind: "markers",
+      files: "src/content/team/*.md",
+      markers: ["[PLACEHOLDER"],
+      help: "Fill in the author's name, role, bio and photo in src/content/team/.",
+    },
+    {
+      id: "author-slug",
+      label: "Author file name",
+      group: "Collections",
+      level: "suggested",
+      kind: "exists",
+      files: "src/content/team/site-author.md",
+      help: "Rename site-author.md to the author's slug (e.g. jane-doe.md) and update author in every article.",
+    },
+    {
+      id: "services",
+      label: "Services",
+      group: "Collections",
+      kind: "markers",
+      files: "src/content/services/*.md",
+      markers: ["placeholder service", "Replace this page at Site Activation"],
+      missing: "replaced",
+      help: "Replace the template service with the site's real offers in src/content/services/.",
+    },
+    {
+      id: "demo-articles",
+      label: "Demo articles",
+      group: "Collections",
+      kind: "exists",
+      files: [
+        "src/content/articles/content-strategy-foundations.md",
+        "src/content/articles/core-web-vitals-complete-guide.md",
+        "src/content/articles/improve-core-web-vitals-howto.md",
+        "src/content/articles/technical-seo-foundations.md",
+      ],
+      help: "Delete the four SEO demo articles (and their images) once the site's own articles are published.",
+    },
+  ],
+};

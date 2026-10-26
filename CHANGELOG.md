@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.3.0 — 2026-10-26
+
+Additive. Nothing in the main entry point changed, so sites adopt it with the
+version bump alone (TNV "Core Version"): same build output, same audit result.
+
+### Added
+- `seo-core/placeholders`: a live list of what a site built from the template
+  still has to replace, and a checker that reports each item's status.
+  - `BLUEPRINT_PLACEHOLDERS`: 19 checks for the SEO Blueprint (15 required,
+    4 suggested), grouped Site config, Design, Images, Pages, Legal,
+    Collections. Each has a stable `id`, a `label`, a `help` line and one of
+    five kinds: `markers`, `value`, `exists`, `originals` (template files by
+    SHA-256, read from the site's `scripts/template-originals.json`) and
+    `imageBriefs` (YAML `image:` briefs with no `src:`).
+  - `checkPlaceholders(files, manifest?)` returns per check `placeholder`,
+    `replaced`, `review` (template text gone, a person must confirm: privacy,
+    terms, testimonials) or `unknown` (expected file or setting missing), with
+    file, line and the offending text, plus totals and `clear`.
+  - `files` is any `SiteFiles` reader (`list()` + `read()`): `localSiteFiles(root)`
+    for a local folder, or one over the GitHub API.
+  - `seo-core/placeholders/blueprint.json`: the same list as plain JSON, for
+    tools that read it from GitHub at a site's pinned tag. A test keeps it
+    equal to `BLUEPRINT_PLACEHOLDERS`.
+  - Helpers: `globToRegExp`, `templateFileHash`, `findImageBriefsWithoutSrc`.
+
 ## 1.2.0 — 2026-10-24
 
 Additive. Sites adopt it with the version bump alone (TNV "Core Version"); no
