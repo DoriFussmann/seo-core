@@ -93,6 +93,14 @@ test("placeholders: blueprint.json is the same list as BLUEPRINT_PLACEHOLDERS", 
   assert.equal(new Set(ids).size, ids.length, "check ids must be unique");
 });
 
+test("placeholders: every check has a how-to guide", () => {
+  for (const check of BLUEPRINT_PLACEHOLDERS.checks) {
+    assert.ok(check.help, `${check.id}: help`);
+    assert.ok(check.steps && check.steps.length >= 2, `${check.id}: at least two steps`);
+    assert.ok(!/src\/assets\/ and add src/.test(check.help ?? ""), `${check.id}: page images go in public/`);
+  }
+});
+
 test("placeholders: globs", () => {
   assert.ok(globToRegExp("src/content/pages/*.yaml").test("src/content/pages/home.yaml"));
   assert.ok(!globToRegExp("src/content/pages/*.yaml").test("src/content/pages/sub/home.yaml"));

@@ -37,6 +37,8 @@ export interface PlaceholderResult {
   level: PlaceholderLevel;
   review: boolean;
   help?: string;
+  steps?: string[];
+  prompt?: string;
   status: PlaceholderStatus;
   findings: PlaceholderFinding[];
 }
@@ -289,6 +291,8 @@ export async function checkPlaceholders(
       level: check.level ?? "required",
       review,
       ...(check.help ? { help: check.help } : {}),
+      ...(check.steps?.length ? { steps: check.steps } : {}),
+      ...(check.prompt ? { prompt: check.prompt } : {}),
       status: outcome.status === "replaced" && review ? "review" : outcome.status,
       findings: outcome.findings,
     });

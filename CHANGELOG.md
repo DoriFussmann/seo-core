@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.3.1 — 2026-10-27
+
+Text only. No detection rule changed, so every site keeps the same statuses.
+
+### Changed
+- Placeholders: each check now carries plain-language fix instructions for
+  site owners working in Cursor or Claude Chat, kept in
+  `src/placeholders/guides.ts` and merged into `BLUEPRINT_PLACEHOLDERS` by id.
+  - `help` is now one line on what is still wrong.
+  - New optional `steps` (numbered actions) and `prompt` (text to paste into
+    Claude Chat or Cursor). `checkPlaceholders` passes both through.
+
+### Fixed
+- Page images: the help said to save images in `src/assets/`. The template
+  renders them with a plain `<img src>`, so they must go in `public/` (the
+  guide uses `public/images/` and `src: /images/<file>`).
+
 ## 1.3.0 — 2026-10-26
 
 Additive. Nothing in the main entry point changed, so sites adopt it with the
