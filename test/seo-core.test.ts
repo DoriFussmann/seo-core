@@ -479,3 +479,11 @@ test("audit flags placeholder text only after activation", () => {
     rmSync(dist, { recursive: true, force: true });
   }
 });
+
+test("uniqueTopics drops repeats case- and space-insensitively, keeps order", async () => {
+  const { uniqueTopics } = await import("../src/lib/topics");
+  assert.deepEqual(
+    uniqueTopics(["ai adoption", "AI  Adoption", "ai adoption framework", "", undefined, "ai integration", "ai adoption"]),
+    ["ai adoption", "ai adoption framework", "ai integration"]
+  );
+});

@@ -23,6 +23,7 @@ import AuthorBio from "../components/AuthorBio.astro";
 import ArticleBody from "../components/ArticleBody.astro";
 import { DEFAULT_TIME_ZONE, zonedDateTime } from "../lib/datetime";
 import { formatDate } from "../lib/formatDate";
+import { uniqueTopics } from "../lib/topics";
 import { abs } from "../lib/url";
 import {
   authorUrl,
@@ -100,7 +101,17 @@ const site = { siteUrl, siteName, logo, sameAs };
 const profileUrl = authorUrl(author.id, siteUrl, authorPath);
 const profileHref = profileUrl.slice(new URL(profileUrl).origin.length);
 
-const og = await getImage({ src: data.image, width: ogImageSize.width, height: ogImageSize.height });
+// Share images are JPEG, not Astro's default WebP: LinkedIn, Slack, iMessage and
+// several AI answer surfaces do not reliably preview WebP og:image files.
+const og = await getImage({
+  src: data.image,
+  width: ogImageSize.width,
+  height: ogImageSize.height,
+  format: "jpeg",
+  // Crop to the exact declared size so og:image:width/height match the file.
+  fit: "cover",
+  position: "center",
+});
 const ogAbs = abs(og.src, siteUrl);
 const authorPhoto = await getImage({ src: author.data.photo, width: 96, height: 96 });
 
@@ -122,10 +133,8 @@ const person = personNode({
   authorPath,
 });
 
-const about = [
-  ...(data.pillarKeyword ? [{ "@type": "Thing", name: data.pillarKeyword }] : []),
-  ...data.tags.map((tag) => ({ "@type": "Thing", name: tag })),
-];
+const about = uniqueTopics([data.pillarKeyword, ...data.tags]).map((name) => ({ "@type": "Thing", name }));
+const citation = data.externalLinks.map((link) => ({ "@type": "CreativeWork", name: link.label, url: link.url }));
 
 const articleNode: Record<string, unknown> = {
   "@type": data.schemaType,
@@ -144,6 +153,7 @@ const articleNode: Record<string, unknown> = {
   wordCount: (article.body ?? "").split(/\s+/).filter(Boolean).length,
   about,
 };
+if (citation.length) articleNode.citation = citation;
 if (data.pillarKeyword) articleNode.articleSection = data.pillarKeyword;
 
 const breadcrumb = breadcrumbNode(crumbs, siteUrl);
