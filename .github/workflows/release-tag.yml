@@ -1,0 +1,65 @@
+name: Release tag
+
+# Tags each new seo-core version automatically. When a push to main carries a
+# package.json version that has no tag yet, run the tests and, if they pass,
+# create tag v<version> on that commit. TNV's Core Version panel reads these
+# tags, so a merged version bump shows up there without any manual step.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-tag
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read version
+        id: version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="v$VERSION"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "$TAG already exists; nothing to release."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "New version: $TAG"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.version.outputs.exists == 'false'
+        with:
+          node-version: 22
+
+      - name: Test
+        if: steps.version.outputs.exists == 'false'
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+
+      - name: Check CHANGELOG has this version
+        if: steps.version.outputs.exists == 'false'
+        run: |
+          V="${{ steps.version.outputs.tag }}"
+          grep -q "^## ${V#v} " CHANGELOG.md || { echo "CHANGELOG.md has no '## ${V#v}' entry"; exit 1; }
+
+      - name: Create tag
+        if: steps.version.outputs.exists == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ steps.version.outputs.tag }}" -m "seo-core ${{ steps.version.outputs.tag }}"
+          git push origin "${{ steps.version.outputs.tag }}"

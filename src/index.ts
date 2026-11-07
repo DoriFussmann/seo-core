@@ -6,6 +6,7 @@ export { resetContentCacheOnUpgrade, SEO_CORE_VERSION } from "./lib/content-cach
 export { slugify, extractHeadings } from "./lib/headings";
 export type { Heading } from "./lib/headings";
 export { abs } from "./lib/url";
+export { uniqueTopics } from "./lib/topics";
 export {
   orgNode,
   orgId,

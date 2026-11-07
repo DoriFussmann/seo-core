@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.5.0 — 2026-11-07
+
+Additive. Sites adopt it with the version bump alone (TNV "Core Version"); no
+site code changes. Article pages only; the audit result is unchanged.
+
+### Changed
+- Article share image (`og:image`, `twitter:image`, Article schema `image`) is
+  now JPEG instead of WebP. LinkedIn, Slack, iMessage and several AI answer
+  surfaces do not reliably preview WebP.
+- The share image is cropped to the exact `ogImageSize` (`fit: "cover"`).
+  Before, Astro kept the source's proportions, so a site declaring 1200×630
+  served 1200×675 while `og:image:height` said 630.
+- Article schema `about` lists each topic once. The pillar keyword and a tag
+  with the same text (any case or spacing) no longer appear twice.
+
+### Added
+- Article schema `citation`: one `CreativeWork` (name, url) per entry in the
+  article's `externalLinks`, the same sources the page already shows.
+- `uniqueTopics()` helper (exported).
+- `.github/workflows/release-tag.yml`: when a push to `main` carries a
+  `package.json` version with no tag, run typecheck and tests, require a
+  matching CHANGELOG entry, then create tag `v<version>`. No manual tagging.
+
 ## 1.4.1 — 2026-11-06
 
 Fix. Sites adopt it with the version bump alone (TNV "Core Version"). Sites
