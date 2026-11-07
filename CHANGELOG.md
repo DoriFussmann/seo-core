@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.4.1 — 2026-11-06
+
+Fix. Sites adopt it with the version bump alone (TNV "Core Version"). Sites
+that removed `site/middleware.js` after 1.4.0 can put it back once on 1.4.1.
+
+### Fixed
+- `seo-core/middleware` crashed every request on Vercel with
+  `500 MIDDLEWARE_INVOCATION_FAILED`. Vercel runs Routing Middleware on
+  Node.js without transpiling `node_modules`, and Node will not load `.ts`
+  files from `node_modules` (`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`).
+  The middleware is now plain JavaScript (`index.js`, `bot-tracking.js`) with
+  types in `index.d.ts`. Same API, same behavior.
+- The middleware can no longer fail a page view: any error while reporting a
+  crawler hit is swallowed and the request passes through.
+
+### Added
+- Tests: `seo-core/middleware` must load in plain Node through the package
+  `exports`, and the middleware must not throw on a malformed request.
+
+## 1.4.0 — 2026-11-06
+
+Additive, but its middleware broke production on Vercel: use 1.4.1.
+
+### Added
+- Article links open in a new tab (`openLinksInNewTab`, applied in
+  `ArticleBody`).
+- `seo-core/middleware`: `createBotMiddleware`, `isCrawler` and
+  `CRAWLER_UA_TOKENS`, reporting AI and search crawler hits to TNV Analytics.
+  Inert until the site sets `TNV_BOT_TOKEN`.
+
 ## 1.3.1 — 2026-10-27
 
 Text only. No detection rule changed, so every site keeps the same statuses.

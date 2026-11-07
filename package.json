@@ -1,6 +1,6 @@
 {
   "name": "seo-core",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "type": "module",
   "scripts": {
     "typecheck": "tsc -p .",
@@ -12,7 +12,10 @@
     "./schemas": "./src/schemas.ts",
     "./placeholders": "./src/placeholders/index.ts",
     "./placeholders/blueprint.json": "./src/placeholders/blueprint.json",
-    "./middleware": "./src/middleware/index.ts",
+    "./middleware": {
+      "types": "./src/middleware/index.d.ts",
+      "default": "./src/middleware/index.js"
+    },
     "./layouts/ArticleLayout.astro": "./src/layouts/ArticleLayout.astro",
     "./components/ArticleBody.astro": "./src/components/ArticleBody.astro",
     "./components/ArticleListing.astro": "./src/components/ArticleListing.astro",
