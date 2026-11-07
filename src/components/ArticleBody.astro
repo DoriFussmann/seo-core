@@ -1,5 +1,6 @@
 ---
 import { guardBodyH1 } from "../lib/body-h1";
+import { openLinksInNewTab } from "../lib/link-targets";
 
 interface Props {
   title?: string;
@@ -8,7 +9,7 @@ interface Props {
 
 const { title, h1 } = Astro.props;
 const html = await Astro.slots.render("default");
-const safe = guardBodyH1(html, title, h1);
+const safe = openLinksInNewTab(guardBodyH1(html, title, h1));
 ---
 
 <Fragment set:html={safe} />
