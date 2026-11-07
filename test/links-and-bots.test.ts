@@ -1,5 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { openLinksInNewTab } from "../src/index";
 import { createBotMiddleware, isCrawler } from "../src/middleware/index";
 
@@ -58,4 +62,32 @@ test("createBotMiddleware reports crawlers only, and only with a token", async (
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, "https://tnv.test/ingest");
   assert.deepEqual(calls[0].body, { token: "tok", ua: "Mozilla/5.0 (compatible; ClaudeBot/1.0)", path: "/articles/a/" });
+});
+
+// Regression for v1.4.0: Vercel runs Routing Middleware on Node.js without
+// transpiling node_modules, so "seo-core/middleware" must load in plain Node
+// (no tsx, no type stripping). A .ts file here 500s every page in production.
+test("seo-core/middleware loads in plain Node through the package exports", () => {
+  const root = fileURLToPath(new URL("..", import.meta.url));
+  const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+  const entry = pkg.exports["./middleware"].default;
+  assert.match(entry, /\.js$/, "middleware entry must be plain .js");
+  const script = `const m = await import(${JSON.stringify(pathToFileURL(join(root, entry)).href)});
+    if (typeof m.createBotMiddleware !== "function") throw new Error("missing export");`;
+  const out = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+    encoding: "utf8",
+    env: { PATH: process.env.PATH ?? "" },
+  });
+  assert.equal(out.status, 0, out.stderr);
+});
+
+test("createBotMiddleware never throws, even on a malformed request", () => {
+  process.env.SEO_CORE_TEST_TOKEN_2 = "tok";
+  try {
+    const mw = createBotMiddleware({ endpoint: "https://tnv.test/ingest", tokenEnv: "SEO_CORE_TEST_TOKEN_2" });
+    assert.doesNotThrow(() => mw({ url: "not a url", headers: new Headers({ "user-agent": "GPTBot" }) } as unknown as Request));
+    assert.doesNotThrow(() => mw(undefined as unknown as Request));
+  } finally {
+    delete process.env.SEO_CORE_TEST_TOKEN_2;
+  }
 });
