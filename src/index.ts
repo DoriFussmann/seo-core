@@ -21,6 +21,7 @@ export type { SiteIdentity, AuthorPath } from "./lib/jsonld";
 export { imageSize } from "./lib/image-size";
 export type { ImageSize } from "./lib/image-size";
 export { guardBodyH1 } from "./lib/body-h1";
+export { openLinksInNewTab } from "./lib/link-targets";
 export { resolveH1, deriveH1, sameHeading, normalizeHeading, H1_MIN_LENGTH } from "./lib/h1";
 export type { H1Source } from "./lib/h1";
 export { rehypeKeyTakeaways } from "./lib/key-takeaways";
