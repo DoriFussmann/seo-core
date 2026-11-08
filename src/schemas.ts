@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DEFAULT_ROBOTS } from "./lib/robots-meta";
 import { ISO_DATE, toIsoDateString } from "./lib/isoDate";
 import { resolveH1 } from "./lib/h1";
 import { LENGTH_RULES } from "./lib/length-rules";
@@ -35,7 +36,7 @@ export function articleBaseSchema(image: ImageFn) {
     draft: z.boolean().default(false),
     robots: z
       .string()
-      .default("index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1"),
+      .default(DEFAULT_ROBOTS),
     schemaType: z.enum(["Article", "BlogPosting", "NewsArticle"]).default("BlogPosting"),
     locale: z.string().default("en_US"),
     twitterCard: z.enum(["summary", "summary_large_image"]).default("summary_large_image"),

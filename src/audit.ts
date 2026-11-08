@@ -89,6 +89,27 @@ export interface AuditConfig {
    * "Placeholder". Default "warn".
    */
   placeholders?: AuditLevel;
+  /**
+   * Indexable page whose robots meta is missing or lacks
+   * `max-image-preview:large` (see DEFAULT_ROBOTS). Skips noindex pages and 404.
+   * Default "warn".
+   */
+  robotsMeta?: AuditLevel;
+  /**
+   * Article whose <h1> or <title> is a comparison ("X vs Y", "versus") but has
+   * no <table>. Answer engines lift comparison tables far more reliably than
+   * prose or card grids. Default "warn".
+   */
+  comparisonTables?: AuditLevel;
+  /**
+   * The site serves `/page` and `/page/` both with 200. Passes when the site's
+   * vercel.json sets `"trailingSlash": true`, or its middleware passes
+   * `trailingSlash` to createBotMiddleware. Skipped when the site has neither
+   * a vercel.json nor a middleware file. Default "warn".
+   */
+  trailingSlashRedirect?: AuditLevel;
+  /** Site root holding vercel.json / middleware.js. Default: the parent of distDir. */
+  siteRoot?: string;
 }
 
 function normalizeAuditPath(path: string): string {
@@ -194,6 +215,28 @@ function unlinkedAttributionsIn($: cheerio.CheerioAPI, body: ReturnType<cheerio.
   return found;
 }
 
+const MIDDLEWARE_FILES = ["middleware.js", "middleware.mjs", "middleware.ts"];
+
+/** Null when the site redirects /page to /page/ (vercel.json or seo-core middleware). */
+export function trailingSlashProblem(siteRoot: string): string | null {
+  const vercelPath = join(siteRoot, "vercel.json");
+  const hasVercel = existsSync(vercelPath);
+  if (hasVercel) {
+    try {
+      if (JSON.parse(readFileSync(vercelPath, "utf8")).trailingSlash === true) return null;
+    } catch {
+      return "vercel.json did not parse";
+    }
+  }
+  const middleware = MIDDLEWARE_FILES.map((f) => join(siteRoot, f)).find((f) => existsSync(f));
+  if (middleware && /\btrailingSlash\b/.test(readFileSync(middleware, "utf8"))) return null;
+  if (!hasVercel && !middleware) return null;
+  return (
+    "/page and /page/ both return 200 — set \"trailingSlash\": true in vercel.json, or pass " +
+    "trailingSlash: { exclude: [...] } to createBotMiddleware when the site proxies other apps"
+  );
+}
+
 export function runAudit(config: AuditConfig): string[] {
   const { siteUrl, articlesBase, distDir } = config;
   const requireKeyTakeaways = config.requireKeyTakeaways ?? true;
@@ -210,6 +253,10 @@ export function runAudit(config: AuditConfig): string[] {
   const slugMatchesFilename = config.slugMatchesFilename ?? "error";
   const pageMetaLengths = config.pageMetaLengths ?? "warn";
   const placeholders = config.placeholders ?? "warn";
+  const robotsMeta = config.robotsMeta ?? "warn";
+  const comparisonTables = config.comparisonTables ?? "warn";
+  const trailingSlashRedirect = config.trailingSlashRedirect ?? "warn";
+  const siteRoot = config.siteRoot ?? join(distDir, "..");
   const activated = siteUrl !== "https://example.com";
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -373,6 +420,16 @@ export function runAudit(config: AuditConfig): string[] {
         }
       }
 
+      if (robotsMeta !== "off" && !is404) {
+        const robotsContent = ($('meta[name="robots"]').attr("content") || "").toLowerCase();
+        if (!/\bnoindex\b/.test(robotsContent) && !/max-image-preview:\s*large/.test(robotsContent)) {
+          report(
+            robotsMeta,
+            `${rel}: robots meta ${robotsContent ? `"${robotsContent}"` : "missing"} lacks max-image-preview:large — use DEFAULT_ROBOTS from seo-core`,
+          );
+        }
+      }
+
       const ogDesc = $('meta[property="og:description"]').attr("content") || "";
       if (ogDesc && ogDesc !== desc) fail(`${rel}: og:description !== meta description`);
 
@@ -487,6 +544,12 @@ export function runAudit(config: AuditConfig): string[] {
 
         const article = $("article").first();
         const scope = article.length ? article : $("main").first();
+        if (comparisonTables !== "off") {
+          const heading = `${h1.first().text()} ${title}`;
+          if (/\bvs\.?(?=\s)|\bversus\b/i.test(heading) && !(scope.length ? scope : $("body")).find("table").length) {
+            report(comparisonTables, `${rel}: comparison article has no <table> — add an HTML comparison table near the top`);
+          }
+        }
         if (externalLinks !== "off") {
           const external = new Set<string>();
           scope.find("a[href]").each((_, el) => {
@@ -547,6 +610,11 @@ export function runAudit(config: AuditConfig): string[] {
       if (haystack.includes("Site Name")) fail("activated site still contains Site Name");
       if (haystack.includes("TEMPLATE:")) fail("activated site still contains TEMPLATE:");
     }
+  }
+
+  if (trailingSlashRedirect !== "off") {
+    const problem = trailingSlashProblem(siteRoot);
+    if (problem) report(trailingSlashRedirect, problem);
   }
 
   if (warnings.length) {

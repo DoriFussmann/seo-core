@@ -1,5 +1,40 @@
 # Changelog
 
+## 1.6.0 — 2026-11-08
+
+Sites adopt it with the version bump alone (TNV "Core Version"). The new
+response headers apply to every site that runs `site/middleware.js`. The
+trailing-slash redirect is opt-in. New audit checks only warn, so no build
+starts failing.
+
+### Added
+- **Middleware: canonical header on markdown copies.** `/…/index.md` responses
+  get `Link: <…/>; rel="canonical"` pointing at the HTML page, so search
+  engines fold the copy into the article rather than index a duplicate.
+- **Middleware: `X-Robots-Tag: noindex` on `/llms.txt` and `/llms-full.txt`.**
+  AI crawlers still fetch them; they stay out of search results.
+- **Middleware: opt-in trailing-slash redirect.**
+  `createBotMiddleware({ endpoint, trailingSlash: { exclude: ["/api", "/portal"] } })`
+  308-redirects `/page` → `/page/` and `/x/index.html` → `/x/`. It skips paths
+  with a file extension, non-GET/HEAD requests and the excluded prefixes. Use
+  this instead of vercel.json `"trailingSlash": true` when the site proxies
+  another app (that setting would also redirect `/api/*`).
+- `DEFAULT_ROBOTS` export (the article schema default, now shared) for site
+  layouts to use on every page.
+- `machineCopyHeaders()`, `trailingSlashTarget()` (from `seo-core/middleware`) and
+  `trailingSlashProblem()` helpers.
+- Audit `robotsMeta` (default "warn"): flags an indexable page whose robots meta
+  is missing or lacks `max-image-preview:large`.
+- Audit `comparisonTables` (default "warn"): flags an article whose h1 or title
+  says "vs" or "versus" but has no `<table>`.
+- Audit `trailingSlashRedirect` (default "warn"): flags a site whose vercel.json
+  doesn't set `"trailingSlash": true` and whose middleware doesn't opt in to
+  `trailingSlash`. New `siteRoot` option (default: the parent of `distDir`).
+
+### Changed
+- `createBotMiddleware` now returns a `Response` for the cases above and
+  `undefined` otherwise. Crawler reporting works exactly as before.
+
 ## 1.5.0 — 2026-11-07
 
 Additive. Sites adopt it with the version bump alone (TNV "Core Version"); no

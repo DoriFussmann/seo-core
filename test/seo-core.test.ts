@@ -24,6 +24,8 @@ import {
   renderSitemapXml,
   resetContentCacheOnUpgrade,
   runAudit,
+  trailingSlashProblem,
+  DEFAULT_ROBOTS,
   SEO_CORE_VERSION,
   serviceSchema,
   stripContentMarkers,
@@ -486,4 +488,41 @@ test("uniqueTopics drops repeats case- and space-insensitively, keeps order", as
     uniqueTopics(["ai adoption", "AI  Adoption", "ai adoption framework", "", undefined, "ai integration", "ai adoption"]),
     ["ai adoption", "ai adoption framework", "ai integration"]
   );
+});
+
+test("audit warns on robots meta without max-image-preview:large and on comparison articles without a table", () => {
+  const dist = mkdtempSync(join(tmpdir(), "seo-core-robots-"));
+  try {
+    writePage(dist, "index.html", page({ path: "/", title: "Home", robots: "index, follow" }));
+    writePage(dist, "about/index.html", page({ path: "/about/", title: "About", robots: DEFAULT_ROBOTS }));
+    writePage(dist, "hidden/index.html", page({ path: "/hidden/", title: "Hidden", robots: "noindex, follow" }));
+    writePage(dist, "articles/a/index.html", page({ path: "/articles/a/", title: "A".repeat(57), robots: DEFAULT_ROBOTS, body: "<article><h1>Seed vs Series A</h1><p>x</p></article>" }));
+    writePage(dist, "articles/b/index.html", page({ path: "/articles/b/", title: "B".repeat(57), robots: DEFAULT_ROBOTS, body: "<article><h1>Angels versus VCs</h1><table><tr><td>x</td></tr></table></article>" }));
+    writePage(dist, "articles/c/index.html", page({ path: "/articles/c/", title: "C".repeat(57), robots: DEFAULT_ROBOTS, body: "<article><h1>Canvas of the market</h1></article>" }));
+    const warnings = auditWarnings(dist, { requireWts: false, requireKeyTakeaways: false, externalLinks: "off" });
+    assert.match(warnings, /^ ! index\.html: robots meta "index, follow" lacks max-image-preview:large/m);
+    assert.doesNotMatch(warnings, /about\/index\.html: robots/);
+    assert.doesNotMatch(warnings, /hidden\/index\.html: robots/);
+    assert.match(warnings, /articles\/a\/index\.html: comparison article has no <table>/);
+    assert.doesNotMatch(warnings, /articles\/b\/index\.html: comparison/);
+    assert.doesNotMatch(warnings, /articles\/c\/index\.html: comparison/);
+  } finally {
+    rmSync(dist, { recursive: true, force: true });
+  }
+});
+
+test("trailingSlashProblem passes on vercel.json trailingSlash or opted-in middleware", () => {
+  const root = mkdtempSync(join(tmpdir(), "seo-core-slash-"));
+  try {
+    assert.equal(trailingSlashProblem(root), null);
+    writeFileSync(join(root, "vercel.json"), JSON.stringify({ redirects: [] }));
+    assert.match(trailingSlashProblem(root) ?? "", /both return 200/);
+    writeFileSync(join(root, "middleware.js"), 'createBotMiddleware({ endpoint: "x", trailingSlash: { exclude: ["/api"] } });');
+    assert.equal(trailingSlashProblem(root), null);
+    rmSync(join(root, "middleware.js"));
+    writeFileSync(join(root, "vercel.json"), JSON.stringify({ trailingSlash: true }));
+    assert.equal(trailingSlashProblem(root), null);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

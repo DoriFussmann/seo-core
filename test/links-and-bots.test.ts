@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { openLinksInNewTab } from "../src/index";
-import { createBotMiddleware, isCrawler } from "../src/middleware/index";
+import { createBotMiddleware, isCrawler, machineCopyHeaders, trailingSlashTarget } from "../src/middleware/index";
 
 test("openLinksInNewTab: internal and external links open in a new tab", () => {
   const out = openLinksInNewTab(
@@ -90,4 +90,46 @@ test("createBotMiddleware never throws, even on a malformed request", () => {
   } finally {
     delete process.env.SEO_CORE_TEST_TOKEN_2;
   }
+});
+
+test("machineCopyHeaders: canonical Link on index.md, noindex on llms files, nothing elsewhere", () => {
+  const o = "https://site.test";
+  assert.deepEqual(machineCopyHeaders("/articles/a/index.md", o), { Link: '<https://site.test/articles/a/>; rel="canonical"' });
+  assert.deepEqual(machineCopyHeaders("/llms.txt", o), { "X-Robots-Tag": "noindex" });
+  assert.deepEqual(machineCopyHeaders("/llms-full.txt", o), { "X-Robots-Tag": "noindex" });
+  assert.equal(machineCopyHeaders("/articles/a/", o), null);
+  assert.equal(machineCopyHeaders("/robots.txt", o), null);
+});
+
+test("trailingSlashTarget: redirects pages and index.html, skips files, excluded prefixes and non-GET", () => {
+  assert.equal(trailingSlashTarget("GET", "/about"), "/about/");
+  assert.equal(trailingSlashTarget("HEAD", "/articles/a"), "/articles/a/");
+  assert.equal(trailingSlashTarget("GET", "/index.html"), "/");
+  assert.equal(trailingSlashTarget("GET", "/about/index.html"), "/about/");
+  assert.equal(trailingSlashTarget("GET", "/about/"), null);
+  assert.equal(trailingSlashTarget("GET", "/"), null);
+  assert.equal(trailingSlashTarget("GET", "/robots.txt"), null);
+  assert.equal(trailingSlashTarget("GET", "/articles/a/index.md"), null);
+  assert.equal(trailingSlashTarget("POST", "/about"), null);
+  assert.equal(trailingSlashTarget("GET", "/api/x", ["/api"]), null);
+  assert.equal(trailingSlashTarget("GET", "/api", ["/api/"]), null);
+  assert.equal(trailingSlashTarget("GET", "/apiary", ["/api"]), "/apiary/");
+});
+
+test("createBotMiddleware: headers on every site, trailing-slash redirect only when opted in", () => {
+  delete process.env.TNV_BOT_TOKEN;
+  const plain = createBotMiddleware({ endpoint: "https://tnv.test/ingest" });
+  const md = plain(new Request("https://site.test/articles/a/index.md"));
+  assert.ok(md);
+  assert.equal(md.headers.get("x-middleware-next"), "1");
+  assert.equal(md.headers.get("link"), '<https://site.test/articles/a/>; rel="canonical"');
+  assert.equal(plain(new Request("https://site.test/about")), undefined);
+  assert.equal(plain(new Request("https://site.test/articles/a/")), undefined);
+
+  const slash = createBotMiddleware({ endpoint: "https://tnv.test/ingest", trailingSlash: { exclude: ["/portal"] } });
+  const r = slash(new Request("https://site.test/about?x=1"));
+  assert.equal(r?.status, 308);
+  assert.equal(r?.headers.get("location"), "https://site.test/about/?x=1");
+  assert.equal(slash(new Request("https://site.test/portal/home")), undefined);
+  assert.equal(slash(new Request("https://site.test/about/")), undefined);
 });

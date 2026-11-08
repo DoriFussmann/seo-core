@@ -1,5 +1,5 @@
 /**
- * AI-crawler tracking for Vercel Routing Middleware.
+ * AI-crawler tracking and SEO response headers for Vercel Routing Middleware.
  *
  * Reports known crawler hits (ChatGPT, Claude, Perplexity, Google, Bing, …) to
  * an analytics endpoint after the response is sent. Human visitors are never
@@ -22,6 +22,12 @@
  *   });
  *
  * `config` stays in the site file: Vercel reads the matcher statically.
+ *
+ * Since 1.6.0 the same middleware also sets canonical / noindex headers on
+ * machine-readable copies (see machineCopyHeaders) on every site, and can
+ * 308 URLs to their trailing-slash form when the site opts in:
+ *
+ *   createBotMiddleware({ endpoint, trailingSlash: { exclude: ["/api", "/portal"] } })
  */
 
 /** Lowercase user-agent tokens. Keep in step with TNV's BOT_SIGNATURES. */
@@ -62,24 +68,103 @@ function readEnv(name) {
   }
 }
 
-export function createBotMiddleware({ endpoint, tokenEnv = "TNV_BOT_TOKEN" } = {}) {
-  // Tracking must never break the site. Any failure is swallowed and the
-  // request passes through untouched (returning undefined = continue).
+/**
+ * Response headers for machine-readable copies of pages (seo-core >= 1.6.0).
+ *
+ * - `/…/index.md` (the article markdown endpoint) gets
+ *   `Link: <…/>; rel="canonical"` pointing at its HTML page, so Google folds
+ *   the copy into the article instead of indexing a duplicate.
+ * - `/llms.txt` and `/llms-full.txt` get `X-Robots-Tag: noindex`: AI crawlers
+ *   still fetch them, they just stay out of search results.
+ *
+ * Returns a header map, or null when the path needs none.
+ */
+export function machineCopyHeaders(pathname, origin) {
+  if (typeof pathname !== "string") return null;
+  if (pathname.endsWith("/index.md")) {
+    const page = pathname.slice(0, -"index.md".length);
+    return { Link: `<${origin}${page}>; rel="canonical"` };
+  }
+  if (pathname === "/llms.txt" || pathname === "/llms-full.txt") {
+    return { "X-Robots-Tag": "noindex" };
+  }
+  return null;
+}
+
+function excluded(pathname, prefixes) {
+  return prefixes.some((prefix) => {
+    const p = String(prefix).replace(/\/+$/, "");
+    return p !== "" && (pathname === p || pathname.startsWith(`${p}/`));
+  });
+}
+
+/**
+ * Where a page URL should 308 to, or null (seo-core >= 1.6.0, opt-in).
+ *
+ * - `/about`        -> `/about/`   (no extension, no trailing slash)
+ * - `/index.html`   -> `/`, `/x/index.html` -> `/x/`
+ *
+ * Paths with a file extension, and paths under an `exclude` prefix (proxied
+ * apps such as `/api`, `/portal`), are left alone. GET and HEAD only.
+ */
+export function trailingSlashTarget(method, pathname, exclude = []) {
+  if (method !== "GET" && method !== "HEAD") return null;
+  if (typeof pathname !== "string" || pathname === "/") return null;
+  if (excluded(pathname, exclude)) return null;
+  if (pathname.endsWith("/index.html")) return pathname.slice(0, -"index.html".length);
+  if (pathname.endsWith("/")) return null;
+  const last = pathname.slice(pathname.lastIndexOf("/") + 1);
+  if (last.includes(".")) return null;
+  return `${pathname}/`;
+}
+
+/** Vercel Routing Middleware: continue to the origin, adding response headers. */
+function continueWith(headers) {
+  return new Response(null, { headers: { ...headers, "x-middleware-next": "1" } });
+}
+
+export function createBotMiddleware({ endpoint, tokenEnv = "TNV_BOT_TOKEN", trailingSlash = false } = {}) {
+  const slashExclude =
+    trailingSlash && typeof trailingSlash === "object" && Array.isArray(trailingSlash.exclude)
+      ? trailingSlash.exclude
+      : [];
+  // Nothing here may break the site. Any failure is swallowed and the request
+  // passes through untouched (returning undefined = continue).
   return function middleware(request, context) {
+    let url;
+    try {
+      url = new URL(request.url);
+    } catch {
+      return;
+    }
+
     try {
       const token = readEnv(tokenEnv);
-      if (!token || !endpoint) return;
       const ua = request?.headers?.get?.("user-agent") || "";
-      if (!isCrawler(ua)) return;
-      const { pathname } = new URL(request.url);
-      const report = fetch(endpoint, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ token, ua: ua.slice(0, 500), path: pathname.slice(0, 300) }),
-      }).catch(() => {});
-      if (context && typeof context.waitUntil === "function") context.waitUntil(report);
+      if (token && endpoint && isCrawler(ua)) {
+        const report = fetch(endpoint, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ token, ua: ua.slice(0, 500), path: url.pathname.slice(0, 300) }),
+        }).catch(() => {});
+        if (context && typeof context.waitUntil === "function") context.waitUntil(report);
+      }
     } catch {
       // ignore: never fail a page view over analytics
+    }
+
+    try {
+      if (trailingSlash) {
+        const target = trailingSlashTarget(request.method || "GET", url.pathname, slashExclude);
+        if (target) {
+          const location = new URL(target + url.search, url.origin);
+          return new Response(null, { status: 308, headers: { Location: location.href } });
+        }
+      }
+      const headers = machineCopyHeaders(url.pathname, url.origin);
+      if (headers) return continueWith(headers);
+    } catch {
+      // ignore: fall through to the origin unchanged
     }
   };
 }
