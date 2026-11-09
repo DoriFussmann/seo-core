@@ -24,6 +24,7 @@ import ArticleBody from "../components/ArticleBody.astro";
 import { DEFAULT_TIME_ZONE, zonedDateTime } from "../lib/datetime";
 import { formatDate } from "../lib/formatDate";
 import { uniqueTopics } from "../lib/topics";
+import { clipToSentence } from "../lib/clip";
 import { abs } from "../lib/url";
 import {
   authorUrl,
@@ -114,6 +115,14 @@ const og = await getImage({
 });
 const ogAbs = abs(og.src, siteUrl);
 const authorPhoto = await getImage({ src: author.data.photo, width: 96, height: 96 });
+// Schema image: one larger rendition, the size a profile page typically uses
+// (800px wide, never upscaled), so the Person node points at the same file
+// everywhere instead of the 96px byline thumbnail.
+const photoWidth = (author.data.photo as { width?: number }).width;
+const authorSchemaPhoto = await getImage({
+  src: author.data.photo,
+  width: photoWidth ? Math.min(800, photoWidth) : 800,
+});
 
 const crumbs = [
   { name: "Home", href: abs("/", siteUrl) },
@@ -125,8 +134,8 @@ const person = personNode({
   slug: author.id,
   name: author.data.name,
   role: author.data.role,
-  description: author.data.bio.replace(/\s+/g, " ").trim().slice(0, 300),
-  image: abs(authorPhoto.src, siteUrl),
+  description: clipToSentence(author.data.bio, 300),
+  image: abs(authorSchemaPhoto.src, siteUrl),
   sameAs: author.data.sameAs,
   knowsAbout: author.data.knowsAbout,
   siteUrl,

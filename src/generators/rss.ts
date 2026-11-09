@@ -1,7 +1,11 @@
 import rss from "@astrojs/rss";
 import MarkdownIt from "markdown-it";
+import { stripContentMarkers } from "../lib/markers";
 
-const parser = new MarkdownIt();
+// html: true so raw HTML blocks in article bodies (stat grids, tables) are
+// passed through. With the default (false) markdown-it escapes them and feed
+// readers show the tags as literal text.
+const parser = new MarkdownIt({ html: true });
 
 export function generateRss(config: {
   siteName: string;
@@ -25,7 +29,7 @@ export function generateRss(config: {
       description: article.data.description,
       pubDate: new Date(`${article.data.date}T00:00:00.000Z`),
       link: `/${config.articlesBase}/${article.id}/`,
-      content: parser.render(article.body ?? ""),
+      content: parser.render(stripContentMarkers(article.body ?? "")),
     })),
   });
 }

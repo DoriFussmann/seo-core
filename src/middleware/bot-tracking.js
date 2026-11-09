@@ -28,6 +28,12 @@
  * 308 URLs to their trailing-slash form when the site opts in:
  *
  *   createBotMiddleware({ endpoint, trailingSlash: { exclude: ["/api", "/portal"] } })
+ *
+ * Since 1.7.0 it also adds baseline security headers to every response it
+ * sees (see SECURITY_HEADERS). Turn them off with `securityHeaders: false`,
+ * skip proxied apps with `securityHeaders: { exclude: ["/portal"] }`, and add
+ * a site-specific Content-Security-Policy with `contentSecurityPolicy` (or
+ * `contentSecurityPolicyReportOnly` while testing it).
  */
 
 /** Lowercase user-agent tokens. Keep in step with TNV's BOT_SIGNATURES. */
@@ -91,6 +97,38 @@ export function machineCopyHeaders(pathname, origin) {
   return null;
 }
 
+/**
+ * Baseline security headers (seo-core >= 1.7.0). Safe for any static
+ * marketing site: none restricts scripts, styles or third-party embeds the
+ * page itself loads. Framing is limited to the site's own origin. HSTS is left
+ * to the host (Vercel sets it).
+ */
+export const SECURITY_HEADERS = Object.freeze({
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "X-Frame-Options": "SAMEORIGIN",
+  "Permissions-Policy": "camera=(), microphone=(), geolocation=(), browsing-topics=()",
+});
+
+/**
+ * Security headers for a path, or null when turned off or excluded.
+ * `options` is the middleware's `securityHeaders` value (default true).
+ */
+export function securityHeaders(pathname, options = true) {
+  if (options === false) return null;
+  const opts = options && typeof options === "object" ? options : {};
+  const exclude = Array.isArray(opts.exclude) ? opts.exclude : [];
+  if (typeof pathname === "string" && excluded(pathname, exclude)) return null;
+  const headers = { ...SECURITY_HEADERS };
+  if (typeof opts.contentSecurityPolicy === "string" && opts.contentSecurityPolicy.trim()) {
+    headers["Content-Security-Policy"] = opts.contentSecurityPolicy.trim();
+  }
+  if (typeof opts.contentSecurityPolicyReportOnly === "string" && opts.contentSecurityPolicyReportOnly.trim()) {
+    headers["Content-Security-Policy-Report-Only"] = opts.contentSecurityPolicyReportOnly.trim();
+  }
+  return headers;
+}
+
 function excluded(pathname, prefixes) {
   return prefixes.some((prefix) => {
     const p = String(prefix).replace(/\/+$/, "");
@@ -123,7 +161,12 @@ function continueWith(headers) {
   return new Response(null, { headers: { ...headers, "x-middleware-next": "1" } });
 }
 
-export function createBotMiddleware({ endpoint, tokenEnv = "TNV_BOT_TOKEN", trailingSlash = false } = {}) {
+export function createBotMiddleware({
+  endpoint,
+  tokenEnv = "TNV_BOT_TOKEN",
+  trailingSlash = false,
+  securityHeaders: security = true,
+} = {}) {
   const slashExclude =
     trailingSlash && typeof trailingSlash === "object" && Array.isArray(trailingSlash.exclude)
       ? trailingSlash.exclude
@@ -161,8 +204,11 @@ export function createBotMiddleware({ endpoint, tokenEnv = "TNV_BOT_TOKEN", trai
           return new Response(null, { status: 308, headers: { Location: location.href } });
         }
       }
-      const headers = machineCopyHeaders(url.pathname, url.origin);
-      if (headers) return continueWith(headers);
+      const headers = {
+        ...(securityHeaders(url.pathname, security) || {}),
+        ...(machineCopyHeaders(url.pathname, url.origin) || {}),
+      };
+      if (Object.keys(headers).length) return continueWith(headers);
     } catch {
       // ignore: fall through to the origin unchanged
     }

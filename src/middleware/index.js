@@ -4,5 +4,7 @@ export {
   isCrawler,
   CRAWLER_UA_TOKENS,
   machineCopyHeaders,
+  securityHeaders,
+  SECURITY_HEADERS,
   trailingSlashTarget,
 } from "./bot-tracking.js";

@@ -8,6 +8,7 @@ export type { Heading } from "./lib/headings";
 export { abs } from "./lib/url";
 export { DEFAULT_ROBOTS } from "./lib/robots-meta";
 export { uniqueTopics } from "./lib/topics";
+export { clipToSentence } from "./lib/clip";
 export {
   orgNode,
   orgId,
