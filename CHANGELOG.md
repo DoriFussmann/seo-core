@@ -1,5 +1,47 @@
 # Changelog
 
+## 1.7.0 — 2026-11-08
+
+Sites adopt it with the version bump alone (TNV "Core Version"); no site code
+changes. Fixes from the heyrupert.com technical audit. No audit check changes,
+so no build starts failing.
+
+### Fixed
+- **RSS: raw HTML in article bodies is no longer escaped twice.** The feed's
+  markdown renderer ran with `html: false`, so blocks such as the stat grid
+  (`<ul class="glance-grid">`) appeared in feed readers as literal tags. It now
+  passes HTML through, as the article pages do. TNV section markers
+  (`<!-- …:START -->`) are stripped from the feed, as in the markdown copies.
+- **Article schema: author `description` no longer ends mid-sentence.** The
+  bio was cut at 300 characters (e.g. "…a home veterinary care company that
+  raised"). It now keeps as many whole sentences as fit in 300 characters
+  (`clipToSentence`).
+- **Person schema `url` is the profile page without the fragment.** With a
+  custom `authorPath` such as `/about/#jane`, `url` was
+  `https://site/about/#jane` on articles while the profile page said
+  `https://site/about/`. `@id` keeps the fragment; `url` drops it.
+
+### Added
+- **Middleware: baseline security headers on every response.**
+  `X-Content-Type-Options: nosniff`, `Referrer-Policy:
+  strict-origin-when-cross-origin`, `X-Frame-Options: SAMEORIGIN`,
+  `Permissions-Policy: camera=(), microphone=(), geolocation=(),
+  browsing-topics=()`. None restricts the scripts, styles or embeds a page
+  loads. Options on `createBotMiddleware`:
+  - `securityHeaders: false` turns them off;
+  - `securityHeaders: { exclude: ["/portal"] }` skips proxied apps;
+  - `securityHeaders: { contentSecurityPolicy: "…" }` (or
+    `contentSecurityPolicyReportOnly`) adds a site-specific CSP. No CSP is
+    sent by default.
+- `securityHeaders()` and `SECURITY_HEADERS` exports (from `seo-core/middleware`).
+- `clipToSentence()` helper (exported).
+
+### Changed
+- `createBotMiddleware` now returns a pass-through `Response` carrying the
+  security headers for ordinary pages, where it used to return `undefined`.
+  Crawler reporting, machine-copy headers and the trailing-slash redirect work
+  exactly as before.
+
 ## 1.6.0 — 2026-11-08
 
 Sites adopt it with the version bump alone (TNV "Core Version"). The new

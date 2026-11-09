@@ -89,7 +89,9 @@ export function personNode(opts: {
     image: opts.image,
     sameAs: opts.sameAs,
     knowsAbout: opts.knowsAbout,
-    url,
+    // The profile page itself; the fragment belongs in @id only, so every page
+    // that describes this person gives the same url.
+    url: url.split("#")[0],
   };
 }
 

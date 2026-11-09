@@ -12,7 +12,28 @@ export interface BotMiddlewareOptions {
    * `exclude` lists path prefixes to leave alone (proxied apps: "/api", "/portal").
    */
   trailingSlash?: boolean | { exclude?: string[] };
+  /**
+   * Baseline security headers on every response (since 1.7.0). Default true.
+   * false turns them off; an object can exclude path prefixes and add a CSP.
+   */
+  securityHeaders?: boolean | SecurityHeaderOptions;
 }
+
+export interface SecurityHeaderOptions {
+  /** Path prefixes to leave alone (proxied apps: "/portal"). */
+  exclude?: string[];
+  /** Enforced Content-Security-Policy value. Site-specific; none by default. */
+  contentSecurityPolicy?: string;
+  /** Content-Security-Policy-Report-Only value, for trying a policy first. */
+  contentSecurityPolicyReportOnly?: string;
+}
+
+export declare const SECURITY_HEADERS: Readonly<Record<string, string>>;
+
+export declare function securityHeaders(
+  pathname: string,
+  options?: boolean | SecurityHeaderOptions
+): Record<string, string> | null;
 
 export declare function machineCopyHeaders(pathname: string, origin: string): Record<string, string> | null;
 

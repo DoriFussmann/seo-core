@@ -5,7 +5,14 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { openLinksInNewTab } from "../src/index";
-import { createBotMiddleware, isCrawler, machineCopyHeaders, trailingSlashTarget } from "../src/middleware/index";
+import {
+  createBotMiddleware,
+  isCrawler,
+  machineCopyHeaders,
+  securityHeaders,
+  SECURITY_HEADERS,
+  trailingSlashTarget,
+} from "../src/middleware/index";
 
 test("openLinksInNewTab: internal and external links open in a new tab", () => {
   const out = openLinksInNewTab(
@@ -123,13 +130,44 @@ test("createBotMiddleware: headers on every site, trailing-slash redirect only w
   assert.ok(md);
   assert.equal(md.headers.get("x-middleware-next"), "1");
   assert.equal(md.headers.get("link"), '<https://site.test/articles/a/>; rel="canonical"');
-  assert.equal(plain(new Request("https://site.test/about")), undefined);
-  assert.equal(plain(new Request("https://site.test/articles/a/")), undefined);
+  assert.equal(md.headers.get("x-content-type-options"), "nosniff");
+  // Ordinary pages pass through with only the security headers added.
+  const page = plain(new Request("https://site.test/articles/a/"));
+  assert.equal(page?.headers.get("x-middleware-next"), "1");
+  assert.equal(page?.headers.get("x-frame-options"), "SAMEORIGIN");
+  assert.equal(page?.headers.get("link"), null);
+  assert.equal(plain(new Request("https://site.test/about"))?.status, 200);
 
   const slash = createBotMiddleware({ endpoint: "https://tnv.test/ingest", trailingSlash: { exclude: ["/portal"] } });
   const r = slash(new Request("https://site.test/about?x=1"));
   assert.equal(r?.status, 308);
   assert.equal(r?.headers.get("location"), "https://site.test/about/?x=1");
-  assert.equal(slash(new Request("https://site.test/portal/home")), undefined);
-  assert.equal(slash(new Request("https://site.test/about/")), undefined);
+  assert.equal(slash(new Request("https://site.test/portal/home"))?.headers.get("location"), null);
+  assert.equal(slash(new Request("https://site.test/about/"))?.status, 200);
+});
+
+test("security headers: on by default, can be turned off, excluded per prefix, CSP opt-in", () => {
+  delete process.env.TNV_BOT_TOKEN;
+  assert.deepEqual(securityHeaders("/"), { ...SECURITY_HEADERS });
+  assert.equal(SECURITY_HEADERS["X-Content-Type-Options"], "nosniff");
+  assert.equal(SECURITY_HEADERS["Referrer-Policy"], "strict-origin-when-cross-origin");
+  assert.equal(securityHeaders("/", false), null);
+  assert.equal(securityHeaders("/portal/x", { exclude: ["/portal"] }), null);
+  assert.ok(securityHeaders("/portals", { exclude: ["/portal"] }));
+  assert.equal(securityHeaders("/", { contentSecurityPolicy: "default-src 'self'" })?.["Content-Security-Policy"], "default-src 'self'");
+  assert.equal(
+    securityHeaders("/", { contentSecurityPolicyReportOnly: "default-src 'self'" })?.["Content-Security-Policy-Report-Only"],
+    "default-src 'self'"
+  );
+  assert.equal(securityHeaders("/")?.["Content-Security-Policy"], undefined);
+
+  const off = createBotMiddleware({ endpoint: "https://tnv.test/ingest", securityHeaders: false });
+  assert.equal(off(new Request("https://site.test/about/")), undefined);
+  const md = off(new Request("https://site.test/articles/a/index.md"));
+  assert.equal(md?.headers.get("x-content-type-options"), null);
+  assert.ok(md?.headers.get("link"));
+
+  const portal = createBotMiddleware({ endpoint: "https://tnv.test/ingest", securityHeaders: { exclude: ["/portal"] } });
+  assert.equal(portal(new Request("https://site.test/portal/login")), undefined);
+  assert.equal(portal(new Request("https://site.test/")) ?.headers.get("x-frame-options"), "SAMEORIGIN");
 });

@@ -12,11 +12,13 @@ import {
   fitsLengthRule,
   LENGTH_RULES,
   authorUrl,
+  clipToSentence,
   collectSitemapEntries,
   enrichPageSchema,
   generateArticleMarkdown,
   generateLlmsFullTxt,
   generateLlmsTxt,
+  generateRss,
   generateRobotsTxt,
   imageSize,
   llmsHeader,
@@ -114,7 +116,63 @@ test("person @id: default team page, or the fragment of a custom profile path", 
   assert.equal(personNode(base)["@id"], `${SITE}/team/jane/#person`);
   const custom = personNode({ ...base, authorPath: (slug) => `/about/#${slug}` });
   assert.equal(custom["@id"], `${SITE}/about/#jane`);
-  assert.equal(custom.url, authorUrl("jane", SITE, (slug) => `/about/#${slug}`));
+  // url is the profile page without the fragment, the same on every page.
+  assert.equal(custom.url, `${SITE}/about/`);
+  assert.equal(personNode(base).url, `${SITE}/team/jane/`);
+});
+
+test("clipToSentence: keeps whole sentences, never cuts mid-sentence or mid-word", () => {
+  const bio =
+    "Dori is the founder of Rupert. He was Founder and CEO of The Vets, a home veterinary care company that raised $40M. He mentors founders at Cornell Tech and Yale.";
+  assert.equal(clipToSentence(bio, 500), bio);
+  assert.equal(clipToSentence(bio, 100), "Dori is the founder of Rupert.");
+  assert.equal(
+    clipToSentence(bio, 120),
+    "Dori is the founder of Rupert. He was Founder and CEO of The Vets, a home veterinary care company that raised $40M."
+  );
+  assert.equal(clipToSentence("  a\n  b.  ", 50), "a b.");
+  const long = clipToSentence("One very long opening sentence without any full stop until the end of it.", 30);
+  assert.ok(long.endsWith("…"));
+  assert.ok(long.length <= 30);
+  assert.ok(!/\s…$/.test(long));
+  for (let max = 20; max < bio.length; max += 7) {
+    const out = clipToSentence(bio, max);
+    assert.ok(out.length <= max, `length at ${max}`);
+    assert.ok(/[.…]$/.test(out), `ends cleanly at ${max}: ${out}`);
+  }
+});
+
+test("article layout schema bio is clipped by sentence, not by character", () => {
+  const layout = readFileSync(new URL("../src/layouts/ArticleLayout.astro", import.meta.url), "utf8");
+  assert.ok(layout.includes("clipToSentence(author.data.bio"));
+  assert.ok(!/bio[^\n]*\.slice\(0,/.test(layout));
+});
+
+test("rss: raw HTML in article bodies is passed through, TNV markers are dropped", async () => {
+  const body = [
+    "## Short answer",
+    "",
+    '<ul class="glance-grid">',
+    '  <li><p class="value">$25K</p></li>',
+    "</ul>",
+    "",
+    "<!-- WHERE-THINGS-STAND:START -->",
+    "Plain **text**.",
+    "<!-- WHERE-THINGS-STAND:END -->",
+  ].join("\n");
+  const res = await generateRss({
+    siteName: "Site",
+    siteTagline: "Tagline",
+    siteUrl: SITE,
+    articlesBase: "articles",
+    site: SITE,
+    articles: [{ id: "a", body, data: { title: "A", description: "D", date: "2026-01-01" } }],
+  });
+  const xml = await res.text();
+  assert.ok(xml.includes("&lt;ul class=&quot;glance-grid&quot;&gt;"), "html is escaped once, as XML text");
+  assert.ok(!xml.includes("&amp;lt;ul"), "no double escaping");
+  assert.ok(!xml.includes("WHERE-THINGS-STAND"));
+  assert.ok(xml.includes("&lt;strong&gt;text&lt;/strong&gt;"));
 });
 
 test("robots: default crawler list and configurable sitemap path", () => {
