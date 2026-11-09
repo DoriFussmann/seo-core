@@ -27,6 +27,10 @@ import {
   resetContentCacheOnUpgrade,
   runAudit,
   trailingSlashProblem,
+  COMPARISON_HEADING,
+  PRICING_HEADING,
+  frontmatterPrompts,
+  promptCoverageProblems,
   DEFAULT_ROBOTS,
   SEO_CORE_VERSION,
   serviceSchema,
@@ -582,6 +586,105 @@ test("trailingSlashProblem passes on vercel.json trailingSlash or opted-in middl
     rmSync(join(root, "middleware.js"));
     writeFileSync(join(root, "vercel.json"), JSON.stringify({ trailingSlash: true }));
     assert.equal(trailingSlashProblem(root), null);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("comparison and pricing headings: lists and alternatives count, everyday phrases do not", () => {
+  for (const h of [
+    "Seed vs Series A",
+    "Foundersuite Alternatives for Founders",
+    "The Best Investor Outreach Services and Tools for Founders",
+    "Top 10 Fundraising Consultants in 2026",
+    "Investor CRMs Compared",
+    "Best capital raising advisory firms",
+  ]) assert.ok(COMPARISON_HEADING.test(h), h);
+  for (const h of ["Best practices for investor updates", "How to find investors with no network", "Topics founders ask about"]) {
+    assert.ok(!COMPARISON_HEADING.test(h), h);
+  }
+  for (const h of ["Capital Raising Fees: What Is Normal", "What does a fractional CFO cost?", "Rupert pricing"]) assert.ok(PRICING_HEADING.test(h), h);
+  for (const h of ["Seed vs Series A", "Coffee with investors"]) assert.ok(!PRICING_HEADING.test(h), h);
+});
+
+test("audit warns on list, alternatives and pricing articles without a table", () => {
+  const dist = mkdtempSync(join(tmpdir(), "seo-core-tables-"));
+  try {
+    const art = (slug: string, h1: string, extra = "") =>
+      writePage(dist, `articles/${slug}/index.html`, page({ path: `/articles/${slug}/`, title: "T".repeat(57), robots: DEFAULT_ROBOTS, body: `<article><h1>${h1}</h1><p>x</p>${extra}</article>` }));
+    art("alts", "Foundersuite alternatives for founders");
+    art("best", "The best investor outreach services");
+    art("fees", "Capital raising fees explained");
+    art("fees-table", "Capital raising fees explained", "<table><tr><td>2–5%</td></tr></table>");
+    art("plain", "Best practices for investor updates");
+    const warnings = auditWarnings(dist, { requireWts: false, requireKeyTakeaways: false, externalLinks: "off", robotsMeta: "off" });
+    assert.match(warnings, /articles\/alts\/index\.html: comparison article has no <table>/);
+    assert.match(warnings, /articles\/best\/index\.html: comparison article has no <table>/);
+    assert.match(warnings, /articles\/fees\/index\.html: pricing article has no <table>/);
+    assert.doesNotMatch(warnings, /fees-table\/index\.html: pricing/);
+    assert.doesNotMatch(warnings, /plain\/index\.html: (comparison|pricing)/);
+    const off = auditWarnings(dist, { requireWts: false, requireKeyTakeaways: false, externalLinks: "off", robotsMeta: "off", comparisonTables: "off", pricingTables: "off" });
+    assert.doesNotMatch(off, /has no <table>/);
+  } finally {
+    rmSync(dist, { recursive: true, force: true });
+  }
+});
+
+test("frontmatterPrompts: objects and plain strings, ignores bad entries and bad YAML", () => {
+  const raw = `---\ntitle: x\nprompts:\n  - prompt: "Is it worth paying for help?"\n    heading: "Is it worth paying for help?"\n  - "How much does it cost?"\n  - heading: "no prompt"\n  - prompt: ""\n---\nbody`;
+  assert.deepEqual(frontmatterPrompts(raw), [
+    { prompt: "Is it worth paying for help?", heading: "Is it worth paying for help?" },
+    { prompt: "How much does it cost?" },
+  ]);
+  assert.deepEqual(frontmatterPrompts("---\ntitle: x\n---\n"), []);
+  assert.deepEqual(frontmatterPrompts("---\nprompts: [unclosed\n---\n"), []);
+});
+
+test("promptCoverageProblems: heading present with a short answer passes; missing, long or table-first sections are reported", () => {
+  const short = "Usually not at pre-seed. Pay for help only when it improves your process, not for introductions alone.";
+  const long = Array.from({ length: 70 }, () => "word").join(" ");
+  const html = `<html><body><article><h1>T</h1>
+<h2>Is it worth paying for help?</h2><p>${short}</p><p>More detail.</p>
+<h2>How much does it cost?</h2><p>${long}</p>
+<h3>Consultant vs investment bank</h3><table><tr><td>x</td></tr></table><p>${short}</p>
+<h2>Empty section</h2><h2>Next</h2></article></body></html>`;
+  const problems = promptCoverageProblems(html, [
+    { prompt: "p1", heading: "Is it worth paying for help?" },
+    { prompt: "p2", heading: "How much does it cost?" },
+    { prompt: "p3", heading: "Consultant vs investment bank" },
+    { prompt: "p4", heading: "Empty section" },
+    { prompt: "p5", heading: "Missing heading" },
+    { prompt: "p6" },
+  ]);
+  assert.equal(problems.length, 5);
+  assert.ok(!problems.some((p) => p.includes('"p1"')));
+  assert.match(problems.join("\n"), /"p2": section "How much does it cost\?" opens with 70 words \(want a direct answer of at most 60\)/);
+  assert.match(problems.join("\n"), /"p3": section "Consultant vs investment bank" does not open with a paragraph/);
+  assert.match(problems.join("\n"), /"p4": section "Empty section" does not open with a paragraph/);
+  assert.match(problems.join("\n"), /"p5": no h2\/h3 "Missing heading" on the page/);
+  assert.match(problems.join("\n"), /"p6" has no section heading/);
+  assert.deepEqual(promptCoverageProblems(html, [{ prompt: "p2", heading: "How much does it cost?" }], 80), []);
+});
+
+test("audit reports prompt coverage from article frontmatter, skipping drafts and articles without prompts", () => {
+  const root = mkdtempSync(join(tmpdir(), "seo-core-prompts-"));
+  try {
+    const dist = join(root, "dist");
+    const articlesDir = join(root, "articles");
+    mkdirSync(articlesDir, { recursive: true });
+    const fm = (slug: string, extra = "") => `---\nslug: ${slug}\n${extra}prompts:\n  - prompt: "What does it cost?"\n    heading: "What does it cost?"\n---\n`;
+    writeFileSync(join(articlesDir, "covered.md"), fm("covered"));
+    writeFileSync(join(articlesDir, "uncovered.md"), fm("uncovered"));
+    writeFileSync(join(articlesDir, "draft.md"), fm("draft", "draft: true\n"));
+    writeFileSync(join(articlesDir, "none.md"), "---\nslug: none\n---\n");
+    const body = (h2: string) => `<article><h1>Heading</h1><h2>${h2}</h2><p>Between $3,000 and $10,000 a month for most early-stage companies.</p></article>`;
+    for (const [slug, h2] of [["covered", "What does it cost?"], ["uncovered", "Something else"], ["none", "Other"]]) {
+      writePage(dist, `articles/${slug}/index.html`, page({ path: `/articles/${slug}/`, title: "T".repeat(57), robots: DEFAULT_ROBOTS, body: body(h2) }));
+    }
+    const warnings = auditWarnings(dist, { articlesDir, requireWts: false, requireKeyTakeaways: false, externalLinks: "off", pricingTables: "off" });
+    assert.match(warnings, /articles\/uncovered\/index\.html: prompt "What does it cost\?": no h2\/h3 "What does it cost\?" on the page/);
+    assert.doesNotMatch(warnings, /articles\/(covered|draft|none)\/index\.html: prompt/);
+    assert.doesNotMatch(auditWarnings(dist, { articlesDir, requireWts: false, requireKeyTakeaways: false, externalLinks: "off", pricingTables: "off", promptCoverage: "off" }), /: prompt "/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

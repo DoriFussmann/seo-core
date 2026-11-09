@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import * as cheerio from "cheerio";
+import yaml from "js-yaml";
 import { DEFAULT_SITEMAP_PATH } from "./generators/robots";
 import { distRelative, pagePathname, walkHtml } from "./lib/dist";
 import { H1_MIN_LENGTH, normalizeHeading } from "./lib/h1";
@@ -96,11 +97,30 @@ export interface AuditConfig {
    */
   robotsMeta?: AuditLevel;
   /**
-   * Article whose <h1> or <title> is a comparison ("X vs Y", "versus") but has
-   * no <table>. Answer engines lift comparison tables far more reliably than
-   * prose or card grids. Default "warn".
+   * Article whose <h1> or <title> is a comparison or a ranked list but has no
+   * <table>: "X vs Y", "versus", "alternatives", "compared", "comparison", or
+   * "best/top … services|tools|firms|agencies|platforms|software|…" (see
+   * COMPARISON_HEADING). Answer engines lift comparison tables far more
+   * reliably than prose or card grids. Default "warn".
    */
   comparisonTables?: AuditLevel;
+  /**
+   * Article whose <h1> or <title> is about cost, price, pricing or fees but has
+   * no <table> (see PRICING_HEADING). A fee table with ranges is what answer
+   * engines quote for "how much does X cost" prompts. Default "warn".
+   */
+  pricingTables?: AuditLevel;
+  /**
+   * Articles whose frontmatter lists `prompts` (the answer-engine prompts the
+   * page is meant to win, each with the `heading` of the section that answers
+   * it). Reports a prompt with no `heading`, a heading not found as an h2/h3 on
+   * the built page, and a section whose first paragraph is missing or longer
+   * than `answerFirstMaxWords`. Articles without `prompts` are skipped.
+   * Default "warn".
+   */
+  promptCoverage?: AuditLevel;
+  /** Longest first paragraph, in words, that still counts as a direct answer. Default 60. */
+  answerFirstMaxWords?: number;
   /**
    * The site serves `/page` and `/page/` both with 200. Passes when the site's
    * vercel.json sets `"trailingSlash": true`, or its middleware passes
@@ -110,6 +130,88 @@ export interface AuditConfig {
   trailingSlashRedirect?: AuditLevel;
   /** Site root holding vercel.json / middleware.js. Default: the parent of distDir. */
   siteRoot?: string;
+}
+
+/** Headings that make an article a comparison or a ranked list (comparisonTables). */
+export const COMPARISON_HEADING =
+  /\bvs\.?(?=\s)|\bversus\b|\balternatives?\b|\bcompared\b|\bcomparison\b|\b(?:best|top)\s+(?:\d+\s+)?(?:[\w&'’.-]+\s+){0,4}?(?:services|tools|firms|agencies|platforms|software|apps|companies|consultants|advisors|providers|options|databases|crms?)\b/i;
+
+/** Headings that make an article about cost, price or fees (pricingTables). */
+export const PRICING_HEADING = /\b(?:costs?|pric(?:e|es|ing)|fees?)\b/i;
+
+/** One entry of an article's frontmatter `prompts`. */
+export interface ArticlePrompt {
+  prompt: string;
+  heading?: string;
+}
+
+/** Frontmatter `prompts` of an article file, or [] when absent or unreadable. */
+export function frontmatterPrompts(raw: string): ArticlePrompt[] {
+  const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(raw)?.[1];
+  if (!fm || !/^prompts:/m.test(fm)) return [];
+  let data: unknown;
+  try {
+    data = yaml.load(fm);
+  } catch {
+    return [];
+  }
+  const list = (data as { prompts?: unknown } | null)?.prompts;
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((item): ArticlePrompt | null => {
+      if (typeof item === "string") return { prompt: item };
+      if (!item || typeof item !== "object") return null;
+      const { prompt, heading } = item as Record<string, unknown>;
+      if (typeof prompt !== "string" || !prompt.trim()) return null;
+      return { prompt: prompt.trim(), heading: typeof heading === "string" && heading.trim() ? heading.trim() : undefined };
+    })
+    .filter((p): p is ArticlePrompt => p !== null);
+}
+
+function wordCount(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+/**
+ * Problems with how a built article answers its prompts: a prompt with no
+ * heading, a heading that is not an h2/h3 on the page, or a section that does
+ * not open with a paragraph of at most `maxWords` words.
+ */
+export function promptCoverageProblems(html: string, prompts: ArticlePrompt[], maxWords = 60): string[] {
+  const $ = cheerio.load(html);
+  const article = $("article").first();
+  const scope = article.length ? article : $("main").first().length ? $("main").first() : $("body");
+  const headings = scope.find("h2, h3").toArray();
+  const problems: string[] = [];
+  for (const { prompt, heading } of prompts) {
+    if (!heading) {
+      problems.push(`prompt "${prompt}" has no section heading`);
+      continue;
+    }
+    const want = normalizeHeading(heading);
+    const el = headings.find((h) => normalizeHeading($(h).text()) === want);
+    if (!el) {
+      problems.push(`prompt "${prompt}": no h2/h3 "${heading}" on the page`);
+      continue;
+    }
+    let first: string | null = null;
+    let node = $(el).next();
+    while (node.length && !/^h[1-6]$/i.test(node.prop("tagName") ?? "")) {
+      const tag = String(node.prop("tagName") ?? "").toLowerCase();
+      if (tag === "p" && node.text().trim()) {
+        first = node.text();
+        break;
+      }
+      if (tag !== "p") break; // the section opens with a table, list or block, not an answer
+      node = node.next();
+    }
+    if (first === null) {
+      problems.push(`prompt "${prompt}": section "${heading}" does not open with a paragraph answering it`);
+    } else if (wordCount(first) > maxWords) {
+      problems.push(`prompt "${prompt}": section "${heading}" opens with ${wordCount(first)} words (want a direct answer of at most ${maxWords})`);
+    }
+  }
+  return problems;
 }
 
 function normalizeAuditPath(path: string): string {
@@ -255,6 +357,9 @@ export function runAudit(config: AuditConfig): string[] {
   const placeholders = config.placeholders ?? "warn";
   const robotsMeta = config.robotsMeta ?? "warn";
   const comparisonTables = config.comparisonTables ?? "warn";
+  const pricingTables = config.pricingTables ?? "warn";
+  const promptCoverage = config.promptCoverage ?? "warn";
+  const answerFirstMaxWords = config.answerFirstMaxWords ?? 60;
   const trailingSlashRedirect = config.trailingSlashRedirect ?? "warn";
   const siteRoot = config.siteRoot ?? join(distDir, "..");
   const activated = siteUrl !== "https://example.com";
@@ -544,11 +649,13 @@ export function runAudit(config: AuditConfig): string[] {
 
         const article = $("article").first();
         const scope = article.length ? article : $("main").first();
-        if (comparisonTables !== "off") {
-          const heading = `${h1.first().text()} ${title}`;
-          if (/\bvs\.?(?=\s)|\bversus\b/i.test(heading) && !(scope.length ? scope : $("body")).find("table").length) {
-            report(comparisonTables, `${rel}: comparison article has no <table> — add an HTML comparison table near the top`);
-          }
+        const heading = `${h1.first().text()} ${title}`;
+        const hasTable = (scope.length ? scope : $("body")).find("table").length > 0;
+        if (comparisonTables !== "off" && !hasTable && COMPARISON_HEADING.test(heading)) {
+          report(comparisonTables, `${rel}: comparison article has no <table> — add an HTML comparison table near the top`);
+        }
+        if (pricingTables !== "off" && !hasTable && PRICING_HEADING.test(heading)) {
+          report(pricingTables, `${rel}: pricing article has no <table> — add a fee or price table with ranges and sources near the top`);
         }
         if (externalLinks !== "off") {
           const external = new Set<string>();
@@ -572,6 +679,21 @@ export function runAudit(config: AuditConfig): string[] {
           for (const sentence of found) {
             report(unlinkedAttributions, `${rel}: unlinked attribution — "${sentence}"`);
           }
+        }
+      }
+    }
+
+    if (promptCoverage !== "off") {
+      for (const article of articles) {
+        if (drafts.includes(article.slug)) continue;
+        const prompts = frontmatterPrompts(article.raw);
+        if (!prompts.length) continue;
+        const slug = frontmatterScalar(article.raw, "slug")?.replace(/^["']|["']$/g, "") || article.slug;
+        const file = join(distDir, articlesBase, slug, "index.html");
+        if (!existsSync(file)) continue;
+        const rel = distRelative(distDir, file);
+        for (const problem of promptCoverageProblems(readFileSync(file, "utf8"), prompts, answerFirstMaxWords)) {
+          report(promptCoverage, `${rel}: ${problem}`);
         }
       }
     }
