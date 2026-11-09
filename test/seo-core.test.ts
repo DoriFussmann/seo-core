@@ -146,6 +146,8 @@ test("article layout schema bio is clipped by sentence, not by character", () =>
   const layout = readFileSync(new URL("../src/layouts/ArticleLayout.astro", import.meta.url), "utf8");
   assert.ok(layout.includes("clipToSentence(author.data.bio"));
   assert.ok(!/bio[^\n]*\.slice\(0,/.test(layout));
+  // Schema image is the 800px rendition, not the 96px byline thumbnail.
+  assert.ok(layout.includes("image: abs(authorSchemaPhoto.src, siteUrl)"));
 });
 
 test("rss: raw HTML in article bodies is passed through, TNV markers are dropped", async () => {

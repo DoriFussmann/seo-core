@@ -20,6 +20,10 @@ so no build starts failing.
   custom `authorPath` such as `/about/#jane`, `url` was
   `https://site/about/#jane` on articles while the profile page said
   `https://site/about/`. `@id` keeps the fragment; `url` drops it.
+- **Person schema `image` on articles is an 800px rendition** (never upscaled)
+  instead of the 96px byline thumbnail. A profile page that renders the same
+  photo at width 800 now gets the identical file URL, so the Person node is
+  the same on every page.
 
 ### Added
 - **Middleware: baseline security headers on every response.**
