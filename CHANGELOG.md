@@ -1,5 +1,44 @@
 # Changelog
 
+## 1.8.0 — 2026-11-09
+
+Sites adopt it with the version bump alone (TNV "Core Version"). Every new or
+widened check reports as a warning by default, so no build starts failing.
+From the heyrupert.com AI-visibility run (300 prompts on ChatGPT, Google AI
+Mode and Perplexity): pages that answer engines read but did not use either
+lacked a direct answer to the exact prompt or a quotable table.
+
+### Added
+- **Audit: `promptCoverage`** (default "warn"). An article may list the
+  answer-engine prompts it is meant to win in frontmatter:
+  ```yaml
+  prompts:
+    - prompt: "Is it worth paying someone to help me raise a pre-seed round?"
+      heading: "Is it worth paying someone to help raise a pre-seed round?"
+  ```
+  For each entry the audit checks the built page: the prompt has a `heading`;
+  an h2/h3 with that text exists; the section opens with a paragraph of at
+  most `answerFirstMaxWords` words (default 60), not a table, list or a long
+  preamble. Articles without `prompts`, and drafts, are skipped, so nothing
+  changes until the generator writes the field.
+- **Article schema: `prompts`** (`{ prompt, heading? }[]`, default `[]`).
+- **Audit: `pricingTables`** (default "warn"). An article whose h1 or title is
+  about cost, price, pricing or fees and has no `<table>`.
+- Exports: `COMPARISON_HEADING`, `PRICING_HEADING`, `frontmatterPrompts`,
+  `promptCoverageProblems`, type `ArticlePrompt`.
+- Dependency: `js-yaml` (the version Astro already installs), to read
+  frontmatter `prompts`.
+
+### Changed
+- **Audit: `comparisonTables` covers lists and alternatives**, not only
+  "vs"/"versus" headings: "alternatives", "compared", "comparison", and
+  "best/top … services|tools|firms|agencies|platforms|software|consultants|…".
+  "Best practices…" and similar phrases do not match. Still "warn" by default.
+
+### Not changed
+- `externalLinks` stays "warn" (minimum 3). Sites that want it enforced set
+  `externalLinks: "error"`.
+
 ## 1.7.0 — 2026-11-08
 
 Sites adopt it with the version bump alone (TNV "Core Version"); no site code

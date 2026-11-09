@@ -54,6 +54,13 @@ export function articleBaseSchema(image: ImageFn) {
       .array(z.object({ label: z.string(), url: z.string().url(), addedAt: isoDate }))
       .default([]),
     faqs: z.array(z.object({ question: z.string(), answer: z.string() })).default([]),
+    /**
+     * Answer-engine prompts this page is meant to win, each with the heading of
+     * the section that answers it. Checked by the audit's `promptCoverage`.
+     */
+    prompts: z
+      .array(z.object({ prompt: z.string().min(1), heading: z.string().optional() }))
+      .default([]),
     published_url: z.string().url().optional(),
   });
 }
