@@ -20,6 +20,7 @@ import {
   generateLlmsTxt,
   generateRss,
   generateRobotsTxt,
+  blockedCrawlers,
   imageSize,
   llmsHeader,
   personNode,
@@ -32,6 +33,7 @@ import {
   frontmatterPrompts,
   promptCoverageProblems,
   DEFAULT_ROBOTS,
+  DEFAULT_AI_CRAWLERS,
   SEO_CORE_VERSION,
   serviceSchema,
   stripContentMarkers,
@@ -187,6 +189,41 @@ test("robots: default crawler list and configurable sitemap path", () => {
   assert.match(txt, /User-agent: Applebot-Extended/);
   assert.match(txt, /Sitemap: https:\/\/site\.test\/sitemap\.xml\n/);
   assert.match(generateRobotsTxt({ siteUrl: SITE, sitemapPath: "/sitemap-index.xml" }), /sitemap-index\.xml/);
+});
+
+test("blockedCrawlers: reports only site-wide blocks, per applicable group", () => {
+  assert.deepEqual(blockedCrawlers(generateRobotsTxt({ siteUrl: SITE })), []);
+  assert.deepEqual(
+    blockedCrawlers(generateRobotsTxt({ siteUrl: SITE, aiCrawlers: { ...DEFAULT_AI_CRAWLERS, GPTBot: "deny", CCBot: "deny" } })),
+    ["GPTBot", "CCBot"],
+  );
+  // No group of its own: the * group applies.
+  assert.equal(blockedCrawlers("User-agent: *\nDisallow: /\n").length, Object.keys(DEFAULT_AI_CRAWLERS).length);
+  // Own group wins over *; shared groups; comments; case; CRLF.
+  assert.deepEqual(blockedCrawlers("User-agent: *\nDisallow: /\n\nUser-agent: gptbot\nAllow: /\n", ["GPTBot", "ClaudeBot"]), ["ClaudeBot"]);
+  assert.deepEqual(blockedCrawlers("User-agent: GPTBot\r\nUser-agent: ClaudeBot\r\nDisallow: / # all\r\n", ["GPTBot", "ClaudeBot", "CCBot"]), ["GPTBot", "ClaudeBot"]);
+  // Path rules and an empty Disallow are not a block.
+  assert.deepEqual(blockedCrawlers("User-agent: *\nDisallow: /portal/\nDisallow:\n"), []);
+});
+
+test("audit reports a robots.txt that blocks AI crawlers", () => {
+  const dist = mkdtempSync(join(tmpdir(), "seo-core-aibots-"));
+  try {
+    writePage(dist, "index.html", page({ path: "/", title: "Home", robots: DEFAULT_ROBOTS }));
+    writeFileSync(join(dist, "sitemap.xml"), renderSitemapXml([]));
+    const run = (level: string, aiCrawlers: Record<string, "allow" | "deny">) => {
+      writeFileSync(join(dist, "robots.txt"), generateRobotsTxt({ siteUrl: SITE, aiCrawlers }));
+      return captureWarnings(() =>
+        runAudit({ siteUrl: SITE, siteName: "S", articlesBase: "articles", distDir: dist, organizationLogo: "off", aiCrawlerAccess: level as "warn" }),
+      ).join("\n");
+    };
+    const denied = { ...DEFAULT_AI_CRAWLERS, ClaudeBot: "deny" as const };
+    assert.match(run("warn", denied), /robots\.txt blocks AI crawlers: ClaudeBot /);
+    assert.doesNotMatch(run("off", denied), /blocks AI crawlers/);
+    assert.doesNotMatch(run("error", { ...DEFAULT_AI_CRAWLERS }), /blocks AI crawlers/);
+  } finally {
+    rmSync(dist, { recursive: true, force: true });
+  }
 });
 
 test("llms.txt: no doubled period, empty sections omitted", () => {

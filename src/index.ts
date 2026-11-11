@@ -48,7 +48,7 @@ export type { LlmsArticle, LlmsExtraPage, LlmsService, LlmsTeamMember } from "./
 export { generateArticleMarkdown } from "./generators/markdown";
 export { generateLlmsFullTxt } from "./generators/llms-full";
 export { generateRss } from "./generators/rss";
-export { generateRobotsTxt, DEFAULT_AI_CRAWLERS, DEFAULT_SITEMAP_PATH } from "./generators/robots";
+export { generateRobotsTxt, blockedCrawlers, DEFAULT_AI_CRAWLERS, DEFAULT_SITEMAP_PATH } from "./generators/robots";
 export type { CrawlerPolicy } from "./generators/robots";
 export { seoSitemap, collectSitemapEntries, renderSitemapXml } from "./generators/sitemap";
 export type { SitemapOptions } from "./generators/sitemap";

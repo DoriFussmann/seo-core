@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.9.0 — 2026-11-11
+
+### Added
+- **Audit: `aiCrawlerAccess`** (default "error"). Fails the build when
+  robots.txt shuts an AI crawler out of the whole site: `Disallow: /` in the
+  group that applies to it (its own, else `*`). Checks the
+  `DEFAULT_AI_CRAWLERS` names, training and search. Path rules such as
+  `Disallow: /portal/` are not a block. No site blocks one today, so nothing
+  starts failing; a site that blocks a crawler on purpose sets
+  `aiCrawlerAccess: "off"`.
+- Export: `blockedCrawlers(robotsTxt, agents?)`.
+
+### Not covered
+- Host firewall rules (Vercel Bot Management, Cloudflare). They are set in the
+  host dashboard and return 403 whatever robots.txt says.
+
 ## 1.8.0 — 2026-11-09
 
 Sites adopt it with the version bump alone (TNV "Core Version"). Every new or
