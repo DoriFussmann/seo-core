@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import * as cheerio from "cheerio";
 import yaml from "js-yaml";
-import { DEFAULT_SITEMAP_PATH } from "./generators/robots";
+import { DEFAULT_SITEMAP_PATH, blockedCrawlers } from "./generators/robots";
 import { distRelative, pagePathname, walkHtml } from "./lib/dist";
 import { H1_MIN_LENGTH, normalizeHeading } from "./lib/h1";
 import { imageSize } from "./lib/image-size";
@@ -128,6 +128,13 @@ export interface AuditConfig {
    * a vercel.json nor a middleware file. Default "warn".
    */
   trailingSlashRedirect?: AuditLevel;
+  /**
+   * robots.txt shuts an AI crawler out of the whole site (`Disallow: /` in the
+   * group that applies to it; see blockedCrawlers). Checks the
+   * DEFAULT_AI_CRAWLERS names, training and search. A site that blocks a
+   * crawler on purpose sets this to "warn" or "off". Default "error".
+   */
+  aiCrawlerAccess?: AuditLevel;
   /** Site root holding vercel.json / middleware.js. Default: the parent of distDir. */
   siteRoot?: string;
 }
@@ -361,6 +368,7 @@ export function runAudit(config: AuditConfig): string[] {
   const promptCoverage = config.promptCoverage ?? "warn";
   const answerFirstMaxWords = config.answerFirstMaxWords ?? 60;
   const trailingSlashRedirect = config.trailingSlashRedirect ?? "warn";
+  const aiCrawlerAccess = config.aiCrawlerAccess ?? "error";
   const siteRoot = config.siteRoot ?? join(distDir, "..");
   const activated = siteUrl !== "https://example.com";
   const errors: string[] = [];
@@ -715,6 +723,15 @@ export function runAudit(config: AuditConfig): string[] {
     if (!robots) fail("robots.txt is missing from dist");
     else if (!new RegExp(`^Sitemap:\\s*${sitemapAbs.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`, "m").test(robots)) {
       fail(`robots.txt does not reference ${sitemapAbs}`);
+    }
+    if (robots && aiCrawlerAccess !== "off") {
+      const blocked = blockedCrawlers(robots);
+      if (blocked.length) {
+        report(
+          aiCrawlerAccess,
+          `robots.txt blocks AI crawlers: ${blocked.join(", ")} — remove the Disallow, or set aiCrawlerAccess: "off" if this site blocks them on purpose`,
+        );
+      }
     }
 
     const extras = [sitemapFile, "sitemap-index.xml", "sitemap-0.xml", "rss.xml", "llms.txt", "llms-full.txt", "robots.txt"].map((n) =>
